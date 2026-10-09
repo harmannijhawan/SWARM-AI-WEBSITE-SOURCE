@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "SWARM AI"
+description = "A real SWARM AI web workspace for authenticated conversations, streaming assistant responses, and persistent chat history, adapted from the user's SWARM desktop application."
+version = "1.0.0"
+id = "artifacts/swarm-ai"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20437
+
+[services.development]
+run = "pnpm --filter @workspace/swarm-ai run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/swarm-ai", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/swarm-ai/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20437"
+BASE_PATH = "/"

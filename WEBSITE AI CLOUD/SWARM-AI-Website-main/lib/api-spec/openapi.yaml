@@ -1,0 +1,413 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: SWARM AI chat, provider settings, and health API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: conversations
+    description: Private conversation history
+  - name: providers
+    description: User-owned AI provider credentials
+  - name: models
+    description: Models discovered from configured providers
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /conversations:
+    get:
+      operationId: listConversations
+      tags: [conversations]
+      summary: List the signed-in user's conversations
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Conversation list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createConversation
+      tags: [conversations]
+      summary: Create a conversation
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationInput"
+      responses:
+        "201":
+          description: Created conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /conversations/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ConversationId"
+    get:
+      operationId: getConversation
+      tags: [conversations]
+      summary: Get a conversation and its messages
+      responses:
+        "200":
+          description: Conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: renameConversation
+      tags: [conversations]
+      summary: Rename a conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameConversationInput"
+      responses:
+        "200":
+          description: Renamed conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteConversation
+      tags: [conversations]
+      summary: Delete a conversation and its messages
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /conversations/{id}/stream:
+    post:
+      operationId: streamConversation
+      tags: [conversations]
+      summary: Send, edit, continue, or regenerate a response
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StreamConversationInput"
+      responses:
+        "200":
+          description: Server-sent events containing real provider progress and response tokens
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "412":
+          description: The selected provider or model is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /providers:
+    get:
+      operationId: listProviders
+      tags: [providers]
+      summary: List provider connection status without revealing credentials
+      responses:
+        "200":
+          description: Provider settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /providers/{providerId}:
+    parameters:
+      - name: providerId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/ProviderId"
+    put:
+      operationId: saveProvider
+      tags: [providers]
+      summary: Save a provider key, encrypted for the signed-in user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveProviderInput"
+      responses:
+        "200":
+          description: Saved provider status, with only a masked key hint
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      operationId: deleteProvider
+      tags: [providers]
+      summary: Remove the signed-in user's provider key
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /models:
+    get:
+      operationId: listModels
+      tags: [models]
+      summary: Discover models from this user's connected providers
+      responses:
+        "200":
+          description: Models available to this user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+components:
+  parameters:
+    ConversationId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+      required: [error]
+    ProviderId:
+      type: string
+      enum: [openai, openrouter, nvidia, groq, google, cloudflare, huggingface, cerebras, mistral]
+    ConversationSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, title, createdAt, updatedAt]
+    Message:
+      type: object
+      properties:
+        id:
+          type: integer
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, role, content, createdAt]
+    Conversation:
+      allOf:
+        - $ref: "#/components/schemas/ConversationSummary"
+        - type: object
+          properties:
+            messages:
+              type: array
+              items:
+                $ref: "#/components/schemas/Message"
+          required: [messages]
+    ConversationListResponse:
+      type: object
+      properties:
+        conversations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConversationSummary"
+      required: [conversations]
+    CreateConversationInput:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 120
+    RenameConversationInput:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+      required: [title]
+    StreamConversationInput:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [send, edit, regenerate, continue]
+        prompt:
+          type: string
+          maxLength: 32000
+        messageId:
+          type: integer
+        providerId:
+          $ref: "#/components/schemas/ProviderId"
+        modelId:
+          type: string
+          minLength: 1
+          maxLength: 200
+        mode:
+          type: string
+          enum: [chat, swarm]
+          default: chat
+      required: [action, providerId, modelId, mode]
+    SaveProviderInput:
+      type: object
+      properties:
+        apiKey:
+          type: string
+          minLength: 8
+          maxLength: 4096
+        accountId:
+          type: string
+          maxLength: 160
+      required: [apiKey]
+    ProviderSummary:
+      type: object
+      properties:
+        providerId:
+          $ref: "#/components/schemas/ProviderId"
+        name:
+          type: string
+        configured:
+          type: boolean
+        needsAccountId:
+          type: boolean
+        accountId:
+          type: string
+          nullable: true
+        keyHint:
+          type: string
+          nullable: true
+      required: [providerId, name, configured, needsAccountId, accountId, keyHint]
+    ProviderListResponse:
+      type: object
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderSummary"
+      required: [providers]
+    ProviderResponse:
+      type: object
+      properties:
+        provider:
+          $ref: "#/components/schemas/ProviderSummary"
+      required: [provider]
+    ModelOption:
+      type: object
+      properties:
+        id:
+          type: string
+        modelId:
+          type: string
+        providerId:
+          $ref: "#/components/schemas/ProviderId"
+        providerName:
+          type: string
+        displayName:
+          type: string
+      required: [id, modelId, providerId, providerName, displayName]
+    ModelListResponse:
+      type: object
+      properties:
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelOption"
+      required: [models]

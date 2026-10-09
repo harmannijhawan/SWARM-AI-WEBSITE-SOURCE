@@ -1,11 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
+  images: { unoptimized: true },
+  serverExternalPackages: ['esbuild','pg'],
+  async rewrites() {
+    const origin = process.env.SWARM_API_URL?.replace(/\/$/, '');
+    return { beforeFiles: origin ? [{ source: '/api/:path*', destination: `${origin}/api/:path*` }] : [] };
   },
-  images: {
-    unoptimized: true,
-  },
-}
-
-export default nextConfig
+};
+export default nextConfig;

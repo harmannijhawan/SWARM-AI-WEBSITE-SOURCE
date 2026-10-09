@@ -1,0 +1,9 @@
+.env*
+.swarm-web/
+.screenshots/
+WEBSITE AI CLOUD/
+public/downloads/
+node_modules/
+.next/
+.git/
+*.tsbuildinfo

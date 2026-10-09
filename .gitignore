@@ -13,3 +13,22 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Store
+# Local chat database and encryption material
+.swarm-web/
+*.tsbuildinfo
+.env
+
+.screenshots/
+.env*
+
+# Never upload local secrets
+.env
+.env.*
+!.env.example
+
+# Build artifacts and local data
+node_modules/
+.next/
+.vercel/
+.swarm-web/
+*.tsbuildinfo

@@ -1,0 +1,753 @@
+CONTINUE THE EXISTING SWARM AI WEBSITE PROJECT — DO NOT START OVER.
+
+You are taking over an existing SWARM AI web project that another AI has already partially built.
+
+IMPORTANT:
+Preserve everything that is already working.
+Do not redesign the existing website unnecessarily.
+Do not replace existing components just because you would implement them differently.
+Continue from the current codebase.
+
+==================================================
+PROJECT STATUS
+==================================================
+
+Already completed:
+
+1. Lovable Cloud backend is connected.
+2. User-specific chat data is intended to be stored in the backend.
+3. Email/password authentication is enabled.
+4. Google authentication is enabled.
+5. SWARM logo and existing visual identity are integrated.
+6. The AI chat UI has been designed based on the existing SWARM desktop application.
+7. The intended chat UI includes:
+
+LEFT SIDEBAR:
+- SWARM logo
+- New chat
+- Search
+- Conversation history
+- Chats grouped by day
+
+MAIN CHAT:
+- User/assistant messages
+- "Ask SWARM anything…" composer
+- Model picker
+- Copy
+- Edit
+- Regenerate
+- Continue
+
+CODE BLOCKS:
+- Copy code
+- Download
+
+Current incomplete areas:
+
+1. Sign-in page is not finished.
+2. /app chat page is not finished.
+3. "Launch SWARM" currently points to /app, but /app is empty/incomplete.
+4. AI backend is not yet connected to the chat.
+5. Streaming responses are not working yet.
+6. Chats are not yet being properly saved/loaded.
+7. The project has not yet been fully tested.
+
+==================================================
+PRIMARY GOAL
+==================================================
+
+FINISH THE EXISTING SWARM AI WEBSITE.
+
+Do NOT create a fake demo.
+
+The final website must have a REAL working AI chat application.
+
+The flow must be:
+
+Landing page
+    ↓
+Launch SWARM
+    ↓
+Authentication if required
+    ↓
+ /app
+    ↓
+Real SWARM chat
+    ↓
+AI response streams into the conversation
+    ↓
+Conversation is saved to the user's account
+    ↓
+Conversation appears in sidebar history
+    ↓
+User can return to it later
+
+==================================================
+1. AUTHENTICATION
+==================================================
+
+Finish the authentication system using the existing Lovable Cloud authentication setup.
+
+Create a polished SWARM sign-in page.
+
+Route:
+
+/login
+
+Support:
+
+- Email/password login
+- Google login
+- Sign up
+- Logout
+- Persistent session
+- Protected /app route
+
+Also create:
+
+/signup
+
+If the backend already supports:
+
+- Forgot password
+- Password reset
+- Email verification
+
+integrate those correctly.
+
+DO NOT create fake authentication.
+
+DO NOT hardcode users.
+
+DO NOT store passwords yourself.
+
+Use the existing authentication infrastructure.
+
+==================================================
+2. /APP — REAL SWARM CHAT
+==================================================
+
+Build the actual AI workspace at:
+
+/app
+
+This should feel comparable to ChatGPT.com in usability, but it must be SWARM AI branded.
+
+DO NOT copy ChatGPT's branding.
+
+Use SWARM's own identity.
+
+Desktop layout:
+
+LEFT SIDEBAR
+--------------------------------
+
+SWARM logo
+
++ New chat
+
+Search conversations
+
+Recent conversations
+
+Today
+- conversation
+- conversation
+
+Yesterday
+- conversation
+
+Previous 7 days
+- conversation
+
+User profile/settings at bottom
+
+
+MAIN CHAT
+--------------------------------
+
+Top area:
+- current model
+- SWARM status if active
+- conversation title/settings
+
+Conversation area:
+- user messages
+- assistant messages
+- markdown
+- code
+- tables
+- lists
+- links
+- formatted responses
+
+Bottom:
+"Ask SWARM anything…"
+
+Controls:
+- attachment
+- model selector
+- SWARM mode
+- web/research if backend supports it
+- voice if already supported
+- send button
+
+==================================================
+3. REAL AI CONNECTION
+==================================================
+
+This is critical.
+
+Connect the chat to the EXISTING backend / Lovable Cloud AI infrastructure.
+
+Do not generate fake responses.
+
+When the user sends:
+
+"Hello"
+
+the application must actually call the configured AI backend and return the real response.
+
+Use the project's existing environment variables and backend architecture.
+
+NEVER hardcode API keys into frontend code.
+
+NEVER expose provider secrets to the browser.
+
+==================================================
+4. STREAMING
+==================================================
+
+Responses should stream progressively.
+
+Example:
+
+User:
+"Explain quantum computing."
+
+Assistant:
+
+"Quantum computing is..."
+
+Then additional text appears progressively.
+
+Do not wait for the entire response before rendering it if the backend supports streaming.
+
+Show a polished typing/thinking state while waiting.
+
+==================================================
+5. CHAT DATABASE
+==================================================
+
+Each authenticated user's conversations must be stored separately.
+
+Database model should support something equivalent to:
+
+users
+conversations
+messages
+
+Conversation:
+
+id
+user_id
+title
+created_at
+updated_at
+
+Message:
+
+id
+conversation_id
+role
+content
+created_at
+
+Use the EXISTING Lovable Cloud database/schema if already created.
+
+Do not create a second competing database architecture.
+
+SECURITY:
+
+A user must ONLY be able to access their own conversations.
+
+Implement proper row-level security / authorization according to the existing backend.
+
+User A must never be able to retrieve User B's chats.
+
+==================================================
+6. NEW CHAT
+==================================================
+
+When the user clicks:
+
++ New chat
+
+Create a new conversation.
+
+Open an empty chat.
+
+Focus the composer.
+
+Do not create duplicate empty conversations unnecessarily.
+
+==================================================
+7. SEND MESSAGE
+==================================================
+
+When the user sends a message:
+
+1. Add the user message immediately.
+2. Save it.
+3. Show assistant thinking state.
+4. Call the real AI backend.
+5. Stream the response.
+6. Render markdown.
+7. Save the final assistant response.
+8. Update conversation timestamp.
+9. Generate a sensible conversation title if appropriate.
+10. Refresh sidebar state.
+
+==================================================
+8. CHAT HISTORY
+==================================================
+
+The sidebar must load conversations from the authenticated user's database.
+
+Group them by date:
+
+Today
+Yesterday
+Previous 7 days
+Older
+
+Clicking a conversation should:
+
+- load the conversation
+- load its messages
+- display them
+- restore the correct state
+
+Do NOT use hardcoded example conversations.
+
+==================================================
+9. MESSAGE ACTIONS
+==================================================
+
+Under assistant messages:
+
+Copy
+Regenerate
+Continue
+
+Under user messages:
+
+Edit
+
+COPY:
+Copy message content to clipboard.
+
+EDIT:
+Allow editing the user's previous message and resubmit.
+
+REGENERATE:
+Request a new assistant response.
+
+CONTINUE:
+Ask the AI to continue the previous response.
+
+These controls must actually work.
+
+Do not create buttons that do nothing.
+
+==================================================
+10. MARKDOWN + CODE
+==================================================
+
+AI output must support:
+
+- headings
+- paragraphs
+- bold
+- italic
+- lists
+- numbered lists
+- links
+- tables
+- inline code
+- fenced code blocks
+
+Code blocks must have:
+
+Copy code
+
+Download
+
+Download should create an actual file from the code when possible.
+
+Use safe syntax highlighting.
+
+==================================================
+11. MODEL SELECTOR
+==================================================
+
+Keep the model selector already designed in the UI.
+
+It must use models actually configured by the backend.
+
+Do NOT display models that aren't available.
+
+If multiple models are configured, allow switching.
+
+If only one model is available, show the current model cleanly without pretending there are others.
+
+==================================================
+12. SWARM MODE
+==================================================
+
+SWARM AI is not just another chatbot.
+
+Support:
+
+CHAT MODE
+and
+SWARM MODE
+
+CHAT MODE:
+Normal AI conversation.
+
+SWARM MODE:
+The request is handled by the existing SWARM/agent architecture.
+
+When SWARM mode is active, show an elegant status area such as:
+
+SWARM ACTIVE
+
+Then display actual agent activity when available.
+
+Example:
+
+Strategist
+Planning...
+
+Researcher
+Researching...
+
+Builder
+Working...
+
+Reviewer
+Reviewing...
+
+IMPORTANT:
+
+Use the existing SWARM backend/agent implementation.
+
+Do NOT fake agent activity with timers.
+
+If the existing backend does not expose agent streaming yet, integrate the closest real available state and clearly structure the frontend so the real events can be connected later.
+
+==================================================
+13. FILE UPLOAD
+==================================================
+
+If file upload already exists in the project, connect it properly.
+
+Support the file types the existing backend supports.
+
+When a file is uploaded:
+
+- show upload progress
+- show attachment in composer
+- handle errors
+- send it through the actual backend
+
+Do not pretend a file was uploaded when it wasn't.
+
+==================================================
+14. RESPONSIVE DESIGN
+==================================================
+
+Desktop:
+
+Full sidebar + full chat workspace.
+
+Tablet:
+
+Collapsible sidebar.
+
+Mobile:
+
+Sidebar becomes a drawer.
+
+Composer remains accessible.
+
+Chat messages remain readable.
+
+No horizontal overflow.
+
+No broken dialogs.
+
+No desktop-only UI forced onto mobile.
+
+==================================================
+15. PRESERVE THE EXISTING SWARM DESIGN
+==================================================
+
+The current SWARM visual identity must remain.
+
+Use:
+
+- existing SWARM logo
+- existing typography
+- existing colors
+- existing visual language
+- existing animations where already implemented
+- existing components where possible
+
+Do NOT turn this into a generic SaaS dashboard.
+
+The application should feel like:
+
+SWARM AI
+
+not:
+
+"another AI chat clone."
+
+==================================================
+16. LANDING PAGE INTEGRATION
+==================================================
+
+The existing landing page has "Launch SWARM" buttons.
+
+Make sure they work.
+
+Correct flow:
+
+Unauthenticated user
+→ /login
+
+Authenticated user
+→ /app
+
+Do not create duplicate Launch SWARM buttons.
+
+Do not use href="#".
+
+Every CTA must lead somewhere real.
+
+==================================================
+17. LOADING + ERROR STATES
+==================================================
+
+Build polished states for:
+
+- authentication loading
+- session loading
+- chat loading
+- message sending
+- AI thinking
+- streaming
+- network failure
+- authentication expiration
+- backend failure
+- empty conversation
+- database failure
+
+Errors should be understandable.
+
+Example:
+
+"SWARM couldn't connect right now. Check your connection and try again."
+
+Do not expose raw stack traces to normal users.
+
+==================================================
+18. SECURITY
+==================================================
+
+CRITICAL:
+
+Never put API keys in frontend code.
+
+Never commit secrets.
+
+Never expose service-role keys.
+
+Never allow one user to query another user's conversations.
+
+Use authenticated server-side operations.
+
+Validate authorization on the backend, not only in the UI.
+
+==================================================
+19. PERFORMANCE
+==================================================
+
+Keep the website fast.
+
+Do not load unnecessary libraries on /app.
+
+Lazy-load heavy 3D/marketing components when appropriate.
+
+The chat interface should become usable quickly.
+
+Avoid unnecessary database requests.
+
+Avoid re-rendering the entire conversation for every streamed token if it can be optimized.
+
+==================================================
+20. TEST EVERYTHING
+==================================================
+
+Before declaring completion, actually test:
+
+AUTH:
+
+- signup
+- login
+- Google login if configured
+- logout
+- protected route
+- session persistence
+
+CHAT:
+
+- new chat
+- send message
+- AI response
+- streaming
+- save message
+- reload page
+- conversation remains
+- sidebar history
+- reopen old conversation
+
+MESSAGE ACTIONS:
+
+- copy
+- edit
+- regenerate
+- continue
+
+CODE:
+
+- code rendering
+- copy code
+- download code
+
+SECURITY:
+
+- user only sees their own chats
+
+RESPONSIVE:
+
+- desktop
+- tablet
+- mobile
+
+NAVIGATION:
+
+- /
+- /login
+- /signup
+- /app
+- logout
+- Launch SWARM
+
+==================================================
+21. DO NOT STOP AT UI
+==================================================
+
+The previous AI already built much of the visual direction.
+
+Your job now is NOT merely to finish the design.
+
+Your job is to make the product FUNCTIONAL.
+
+The final result must allow a real user to:
+
+1. Visit SWARM AI.
+2. Sign up.
+3. Log in.
+4. Launch SWARM.
+5. Open /app.
+6. Start a conversation.
+7. Send a real AI message.
+8. Receive the answer.
+9. See the response stream.
+10. Have the conversation saved.
+11. Refresh the page.
+12. See the conversation again.
+13. Open it.
+14. Continue chatting.
+
+==================================================
+22. DO NOT REBUILD
+==================================================
+
+This is a continuation task.
+
+DO NOT:
+
+- delete the existing website
+- replace the landing page
+- replace the SWARM branding
+- rebuild the project from scratch
+- create mock AI responses
+- create fake database records
+- create fake authentication
+- create fake agent activity
+- create placeholder buttons
+- create duplicate applications
+
+Instead:
+
+INSPECT THE CURRENT CODE FIRST.
+
+Understand what is already implemented.
+
+Then complete only what is missing.
+
+==================================================
+23. FINAL QUALITY BAR
+==================================================
+
+When finished, SWARM should feel like a real AI product.
+
+Landing page:
+Premium + cinematic + 3D.
+
+Authentication:
+Simple + polished.
+
+Application:
+ChatGPT-level usability.
+
+Identity:
+SWARM AI.
+
+Core idea:
+
+ONE MISSION.
+MANY MINDS.
+
+The website should be ready for real users, not merely a visual prototype.
+
+==================================================
+FINAL RESPONSE
+==================================================
+
+When you finish, report:
+
+1. What was already present.
+2. What you completed.
+3. Which backend endpoints/functions are being used.
+4. How authentication works.
+5. How conversations are stored.
+6. How AI streaming works.
+7. What was tested.
+8. Any remaining limitations.
+
+Do not say "done" unless you actually tested the functionality.
