@@ -36,12 +36,13 @@ export const AgentGraph = memo(function AgentGraph({ run, tasks, agents, height,
 
   const messages: {from:AgentRole;to:AgentRole|'all';ts:number;id:string}[] = [];
   const roles = [...new Set([...ORDER.filter(role => agents[role] || tasks.some(t => t.role === role)), ...Object.keys(agents), ...tasks.map(t => t.role)])] as AgentRole[];
-  const nodeW = 210, nodeH = 106;
+  const mobile = width > 0 && width < 540;
+  const nodeW = mobile ? Math.max(110,(width-60)/2) : 210, nodeH = mobile ? 94 : 106;
   const rows = Math.max(3, Math.ceil(roles.length / 3));
-  const innerW = Math.max(720, Math.min(880, width));
-  const innerH = rows * 184 + 12;
+  const innerW = mobile ? Math.max(0,width-16) : Math.max(720, Math.min(880, width));
+  const innerH = mobile ? (1+Math.ceil((roles.length-1)/2))*132+20 : rows * 184 + 12;
   const fitZoom = Math.min(1.15, width / innerW, height / innerH);
-  const baseZoom = Math.max(.45, fitZoom);
+  const baseZoom = mobile ? 1 : Math.max(.45, fitZoom);
   const zoom = baseZoom * zoomFactor;
   const pos = new Map<string, { x: number; y: number }>();
   const managerY = 24 + (innerH - 184 - 48) / Math.max(1, rows - 1);
@@ -60,6 +61,10 @@ export const AgentGraph = memo(function AgentGraph({ run, tasks, agents, height,
   const used = new Set<number>();
   for (const role of others) { const slot = preferred[role]; if (slot !== undefined && slots[slot]) { pos.set(role, slots[slot]); used.add(slot); } }
   for (const role of others) if (!pos.has(role)) { const slot = slots.findIndex((_, i) => !used.has(i)); pos.set(role, slots[slot]); used.add(slot); }
+  if(mobile){
+    pos.set('manager',{x:(innerW-nodeW)/2,y:16});
+    others.forEach((role,i)=>pos.set(role,{x:14+(i%2)*(nodeW+16),y:148+Math.floor(i/2)*132}));
+  }
   const byId = new Map(tasks.map(t => [t.id, t]));
   const edges = new Map<string, { from: AgentRole; to: AgentRole; live: boolean; signal?: string }>();
   for (const t of tasks) for (const depId of t.deps) {
@@ -81,16 +86,16 @@ export const AgentGraph = memo(function AgentGraph({ run, tasks, agents, height,
   };
   return <div className="agent-graph-shell" ref={ref} style={{ height }}>
     {roles.length <= 2 && run.status === 'running' && <div className="graph-preparing"><span>Live planning</span><h2>Shaping the work ahead</h2><p>{tasks.find(t => t.status === 'running')?.title ?? 'Preparing the next task'}. Specialists will appear here as the execution plan is created.</p></div>}
-    <div className="agent-graph-scroll"><div style={{ width: innerW * zoom, height: innerH * zoom, margin: 'auto', position: 'relative', top: Math.max(0, (height - innerH * zoom) / 2) }}><div className="agent-graph-canvas" style={{ width: innerW, height: innerH, transform: 'scale(' + zoom + ')', transformOrigin: 'top left' }}>
+    <div className="agent-graph-scroll"><div style={{ width: innerW * zoom, height: innerH * zoom, margin: 'auto', position: 'relative', top: mobile ? 0 : Math.max(0, (height - innerH * zoom) / 2) }}><div className="agent-graph-canvas" style={{ width: innerW, height: innerH, transform: 'scale(' + zoom + ')', transformOrigin: 'top left' }}>
       <svg className="absolute inset-0 pointer-events-none" width={innerW} height={innerH} aria-hidden><defs><marker id="agent-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker></defs>{[...edges.entries()].map(([key, edge]) => { const a = pos.get(edge.from), b = pos.get(edge.to); return a && b ? <g key={key}><path d={path(a,b)} fill="none" stroke={edge.live ? 'var(--accent)' : 'var(--line-strong)'} strokeWidth={edge.live ? 1.6 : 1.3} markerEnd="url(#agent-arrow)" className={edge.live ? 'edge-live' : ''} />{edge.signal && <circle key={edge.signal} r={3} className="graph-signal" style={{ offsetPath: `path('${path(a,b)}')` }} />}</g> : null; })}</svg>
       {roles.map(role => { const p = pos.get(role)!; const savedAgent = agents[role]; const agent = role === 'manager' ? { ...savedAgent, status: run.status === 'running' ? 'working' as const : run.status === 'completed' ? 'completed' as const : run.status === 'failed' ? 'failed' as const : run.status === 'attention' ? 'blocked' as const : 'waiting' as const } : savedAgent; const meta = ROLE_META[role] ?? ROLE_META.coder; const mine = tasks.filter(t => t.role === role && !['skipped','cancelled'].includes(t.status)); const done = mine.filter(t => t.status === 'completed').length; const active = mine.find(t => t.status === 'running'); const live = run.status === 'running' && (agent?.status === 'working' || agent?.status === 'planning'); const name = ROLE_META[role]?.name ?? role;
-        return <div key={role} className="workforce-position" style={{ transform: `translate(${p.x}px, ${p.y}px)` }}><button data-motion-state={agent?.status} className={cx('workforce-node', selected === role && 'workforce-node-selected', role === 'manager' && 'workforce-manager')} style={{ left: 0, top: 0, width: nodeW, height: nodeH }} aria-label={name + ': ' + (role === 'manager' && run.status === 'running' ? 'Running' : agentLabel(agent?.status)) + ' — inspect agent'} onClick={() => { onSelect?.(role); }}>
+        return <div key={role} className="workforce-position" style={{ position:'absolute',left:0,top:0,width:nodeW,height:nodeH,transform: `translate(${p.x}px, ${p.y}px)` }}><button data-motion-state={agent?.status} className={cx('workforce-node', selected === role && 'workforce-node-selected', role === 'manager' && 'workforce-manager')} style={{ left: 0, top: 0, width: nodeW, height: nodeH }} aria-label={name + ': ' + (role === 'manager' && run.status === 'running' ? 'Running' : agentLabel(agent?.status)) + ' — inspect agent'} onClick={() => { onSelect?.(role); }}>
           <span className={cx('workforce-icon', live && 'workforce-icon-live', agent?.status === 'completed' && 'workforce-icon-complete')}><meta.icon size={23} strokeWidth={1.7} /></span>
           <span className="workforce-node-content"><strong>{name}</strong><span className="workforce-node-status"><Dot tone={agentTone(agent?.status)} pulse={live} />{role === 'manager' ? (run.status === 'running' ? 'Running' : run.status === 'paused' ? 'Paused' : run.status === 'cancelled' ? 'Stopped' : agentLabel(agent?.status)) : agentLabel(agent?.status)}</span><span className="workforce-node-description" title={active?.title ?? agent?.taskTitle ?? ''}>{role === 'manager' ? 'Coordinating the project' : meta.title}</span><span className="workforce-progress"><i style={{ width: '100%', transform: `scaleX(${mine.length ? done / mine.length : 0})`, background: agent?.status === 'completed' ? 'var(--ok)' : 'var(--accent)' }} /><small>{mine.length ? done + '/' + mine.length : '—'}</small></span></span>
         </button>{mine.length > 0 && role !== 'manager' && <div className="workforce-task-summary" style={{ left: 12, top: nodeH, width: nodeW - 24 }}>{[...mine].sort((a,b) => Number(b.status === 'running') - Number(a.status === 'running')).slice(0, 2).map(t => <span key={t.id} title={t.title + ' · ' + t.status}><FileText size={11} /><span>{t.title}</span></span>)}{mine.length > 2 && <small>+{mine.length - 2} more tasks</small>}</div>}</div>;
       })}
     </div></div></div>
-    <div className="graph-zoom"><button aria-label="Zoom in" onClick={() => setZoom(z => Math.min(2,z+.15))}><Plus size={16} /></button><button aria-label="Zoom out" onClick={() => setZoom(z => Math.max(.5,z-.15))}><Minus size={16} /></button><button aria-label="Fit graph" onClick={() => setZoom(fitZoom / baseZoom)}><Maximize size={15} /></button></div>
+    <div className="graph-zoom"><button aria-label="Zoom in" onClick={() => setZoom(z => Math.min(2,z+.15))}><Plus size={16} /></button><button aria-label="Zoom out" onClick={() => setZoom(z => Math.max(.5,z-.15))}><Minus size={16} /></button><button aria-label="Fit graph" onClick={() => setZoom(mobile ? 1 : fitZoom / baseZoom)}><Maximize size={15} /></button></div>
   </div>;
 });
 
@@ -110,20 +115,21 @@ export const TaskGraph = memo(function TaskGraph({ tasks, height, onSelect }: { 
     tasks.forEach((t) => d(t));
     return { nodes: layout(tasks.map((t) => ({ id: t.id, col: depth.get(t.id)! }))), depthCount: Math.max(0, ...depth.values()) + 1 };
   }, [tasks]);
-  const nodeW = 150, nodeH = 34;
+  const mobile = width > 0 && width < 540;
+  const nodeW = mobile ? Math.min(260,width-32) : 150, nodeH = mobile ? 46 : 34;
   const colW = nodeW + 44;
-  const innerW = Math.max(width, depthCount * colW + 16);
+  const innerW = mobile ? width : Math.max(width, depthCount * colW + 16);
   const maxRows = Math.max(1, ...nodes.map((n) => n.rows));
-  const innerH = Math.max(height, maxRows * (nodeH + 12) + 24);
+  const innerH = mobile ? Math.max(height,nodes.length*(nodeH+28)+32) : Math.max(height, maxRows * (nodeH + 12) + 24);
   const pos = useMemo(() => {
     const m = new Map<string, { x: number; y: number }>();
-    for (const n of nodes) {
+    for (const [index,n] of [...nodes].sort((a,b)=>a.col-b.col||a.row-b.row).entries()) {
       const gapY = nodeH + 12;
       const total = gapY * (n.rows - 1);
-      m.set(n.id, { x: 12 + n.col * colW, y: innerH / 2 - total / 2 + n.row * gapY - nodeH / 2 });
+      m.set(n.id, mobile ? {x:(innerW-nodeW)/2,y:16+index*(nodeH+28)} : { x: 12 + n.col * colW, y: innerH / 2 - total / 2 + n.row * gapY - nodeH / 2 });
     }
     return m;
-  }, [nodes, innerH, colW]);
+  }, [nodes, innerH, innerW, colW, mobile, nodeW, nodeH]);
   const byId = new Map(tasks.map((t) => [t.id, t]));
   return (
     <div ref={ref} className="w-full overflow-auto" style={{ height }}>
@@ -132,7 +138,8 @@ export const TaskGraph = memo(function TaskGraph({ tasks, height, onSelect }: { 
           {tasks.flatMap((t) => t.deps.map((d) => {
             const a = pos.get(d), b = pos.get(t.id); if (!a || !b) return null;
             const live = t.status === 'running';
-            return <path key={`${d}-${t.id}`} d={edgePath(a, b, nodeW, nodeH, false)} fill="none"
+            const connector=mobile?`M ${a.x+nodeW/2} ${a.y+nodeH} L ${b.x+nodeW/2} ${b.y}`:edgePath(a,b,nodeW,nodeH,false);
+            return <path key={`${d}-${t.id}`} d={connector} fill="none"
               stroke={live ? 'var(--accent)' : 'var(--line-strong)'} strokeWidth={live ? 1.5 : 1}
               className={cx(live && 'edge-live')} />;
           }))}

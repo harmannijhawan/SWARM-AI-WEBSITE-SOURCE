@@ -102,5 +102,5 @@ export function PlanUpgradeButton() {
     return () => { live = false; window.removeEventListener('swarm:entitlements', update); };
   }, []);
   if (!visible) return null;
-  return <button type="button" onClick={() => window.dispatchEvent(new Event('swarm:upgrade'))} className="m-3 flex items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-blue-950"><span><strong className="block text-xs">Upgrade to Pro</strong><span className="text-[11px]">More usage · SWARM SWE Fast</span></span><Sparkles size={18}/></button>;
+  return <button type="button" onClick={() => window.dispatchEvent(new Event('swarm:upgrade'))} className="sw-upgrade-nudge"><span><strong className="block text-xs">Upgrade to Pro</strong><span className="text-[11px]">More usage · SWARM SWE Fast</span></span><Sparkles size={18}/></button>;
 }

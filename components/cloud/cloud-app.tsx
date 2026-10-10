@@ -121,8 +121,6 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   const [buildEvents, setBuildEvents] = useState<BuildEvent[]>([]);
   const [streamError, setStreamError] = useState('');
   const [retryRequest, setRetryRequest] = useState<{id:string;payload:StreamConversationInput;requestId:string}|null>(null);
-  const [modelId, setModelId] = useState('auto');
-  const [activeModel, setActiveModel] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   useEffect(() => { const media=window.matchMedia('(min-width: 768px)');const update=()=>setSidebarOpen(media.matches);update();media.addEventListener('change',update);return()=>media.removeEventListener('change',update); }, []);
   const [editingMessage, setEditingMessage] = useState<number | null>(null);
@@ -144,7 +142,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   const models = modelsResult?.models ?? [];
   const providers = providersResult?.providers ?? [];
   const validModels = models.filter((model) => providers.find((p) => p.providerId === model.providerId)?.configured);
-  const selectedModel = modelId === 'auto' && validModels.length ? { id:'auto', providerId:validModels[0].providerId, modelId:'auto', displayName:'SWARM SWE', providerName:'SWARM router' } : validModels.find(model => model.id === modelId) ?? validModels[0];
+  const selectedModel = validModels.length ? {providerId:validModels[0].providerId,modelId:'auto'} : undefined;
   const activeMessages = (detail?.messages ?? []) as Message[];
   const [draftMessages, setDraftMessages] = useState<Message[]>([]);
   const renderedMessages = [...activeMessages, ...draftMessages];
@@ -168,7 +166,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
 
   async function streamRequest(payload: StreamConversationInput, promptLabel?: string) {
     if(requestRef.current)return;
-    setBusy(true); setStreamError(''); setRetryRequest(null); setStreaming(''); setAgentEvents([]); setBuildEvents([]); setActiveModel('');
+    setBusy(true); setStreamError(''); setRetryRequest(null); setStreaming(''); setAgentEvents([]); setBuildEvents([]);
     const controller = new AbortController(); requestRef.current = controller;
     let timedOut=false;
     const timeout=setTimeout(()=>{timedOut=true;controller.abort();},270_000);
@@ -201,9 +199,9 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
           const event=data as StreamUpdate;
           const nested = event.data && typeof event.data === 'object' ? event.data as StreamUpdate : undefined;
           if (type === 'model') {
-            window.dispatchEvent(new Event('swarm:usage'));setActiveModel(`${event.displayName || event.modelId} · ${event.providerName || event.providerId}`);
+            window.dispatchEvent(new Event('swarm:usage'));
           } else if (type === 'reset') { setStreaming('');
-          } else if (type === 'routing') { setActiveModel(event.message || 'Trying another model…');
+          } else if (type === 'routing') { /* Internal routing remains server-managed. */
           } else if (type === 'delta') {
             const token = event.token ?? nested?.token;
             if (typeof token === 'string') setStreaming((current) => current + token);
@@ -273,7 +271,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
 
   return <div className={`desktop-web-workspace flex h-[calc(100dvh-3.5rem)] min-h-0 overflow-hidden ${idleBuild?'build-welcome':''}`}>
     {sidebarOpen && <aside className="desktop-web-history fixed inset-y-14 left-0 z-30 flex h-[calc(100dvh-3.5rem)] w-[270px] shrink-0 flex-col border-r border-border bg-sidebar shadow-xl md:static md:z-auto md:h-auto md:shadow-none">
-      <div className="px-4 pb-3 pt-4"><button onClick={() => { setSelectedId(null); setDraftMessages([]); setDraft(''); setStreamError(''); }} disabled={busy} className="mb-3 flex w-full items-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-40"><Plus size={15} /> New chat</button><label className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-muted-foreground focus-within:ring-2 focus-within:ring-[#101114]/20"><Search size={14} /><input data-testid="input-search-conversations" className="w-full bg-transparent text-xs text-foreground outline-none" placeholder="Search chats" value={search} onChange={(e) => setSearch(e.target.value)} /></label></div>
+      <div className="px-4 pb-3 pt-4"><button onClick={() => { setSelectedId(null); setDraftMessages([]); setDraft(''); setStreamError(''); if(window.innerWidth<768)setSidebarOpen(false); }} disabled={busy} className="mb-3 flex w-full items-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-40"><Plus size={15} /> New chat</button><label className="flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-muted-foreground focus-within:ring-2 focus-within:ring-[#101114]/20"><Search size={14} /><input data-testid="input-search-conversations" className="w-full bg-transparent text-xs text-foreground outline-none" placeholder="Search chats" value={search} onChange={(e) => setSearch(e.target.value)} /></label></div>
       <div className="scroll-thin flex-1 overflow-y-auto px-2 pb-4">
         {isLoading ? <div className="space-y-2 p-2" role="status" aria-label="Loading conversations">{[0,1,2,3].map((i) => <div key={i} className="h-9 animate-pulse rounded-lg bg-muted" />)}</div>
           : isError ? <div className="m-2 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive">Conversation history couldn’t load.<button className="mt-2 block font-bold underline" onClick={() => void refetch()}>Try again</button></div>
@@ -295,14 +293,14 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
           {detailLoading && selectedId ? <div className="mx-auto max-w-[760px] space-y-6 px-6 py-12" role="status" aria-label="Loading conversation">{[1,2,3].map((i) => <div key={i} className="animate-pulse space-y-2"><div className="h-3 w-20 rounded bg-muted" /><div className="h-4 w-full rounded bg-muted" /><div className="h-4 w-4/5 rounded bg-muted" /></div>)}</div>
             : detailError && selectedId ? <div className="mx-auto mt-24 max-w-md rounded-2xl border border-destructive/20 bg-card p-7 text-center"><CircleHelp className="mx-auto text-destructive" size={24} /><h2 className="mt-3 font-bold">Couldn’t open this conversation</h2><p className="mt-2 text-sm text-muted-foreground">Try again or select another conversation.</p><button data-testid="button-retry-conversation" onClick={() => void reloadDetail()} className="mt-4 rounded-lg bg-secondary px-4 py-2 text-sm font-semibold">Retry</button></div>
               : !renderedMessages.length && !busy ? <div className={`desktop-welcome ${idleBuild?'desktop-welcome-build':'desktop-welcome-chat'}`}>
-                {idleBuild?<span className="desktop-build-eyebrow">AUTONOMOUS WORKSPACE</span>:<span className="sw-welcome-emblem"><img src="/brand/swarm-mark.png" alt="SWARM"/></span>}
+                {idleBuild?<div className="sw-build-introbar"><span className="desktop-build-eyebrow">BUILD STUDIO</span><button type="button" onClick={()=>setSidebarOpen(true)} aria-label="Open project history"><PanelLeftOpen size={15}/>Projects</button></div>:<span className="sw-welcome-emblem"><img src="/brand/swarm-mark.png" alt="SWARM"/></span>}
                 <h1>{idleBuild?'What should SWARM build?':'A thought. A possibility. A start.'}</h1><p>{idleBuild?'Describe the outcome and target platform. SWARM will plan, build, and review the code.':'Bring your question or your next big idea. We’ll work through it together.'}</p>
                 {!validModels.length&&!modelsLoading&&<Link className="desktop-provider-link" href="/app/settings"><KeyRound size={15}/> AI service status</Link>}
                 <div className="desktop-welcome-suggestions">{(idleBuild?[['Web','Build a website that '],['Windows','Build a Windows app that '],['Android','Build an Android app that '],['CLI','Create a CLI tool that ']]:[['Explore an idea','Help me develop an idea for '],['Explain some code','Explain this code: '],['Build a website','Build a website that ']]).map(([label,prompt])=><button key={label} onClick={()=>{if(!idleBuild&&label==='Build a website')setMode('swarm');prefill(prompt);}}>{label}{idleBuild&&<ArrowUpRight size={12}/>}</button>)}</div>
               </div>
               : <div className="mx-auto max-w-[760px] px-6 pb-12 pt-7">
                 {renderedMessages.map((message, index) => <article key={`${message.id}-${index}`} data-testid={`message-${message.id}`} className={`appear ${message.role === 'user' ? 'sw-message-user' : 'sw-message-assistant'}`}>
-                  <div className="mb-3 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[.12em] text-muted-foreground">{message.role === 'user' ? 'You' : <><img src="/brand/swarm-mark.png" alt="" className="h-4 w-4 object-contain" /> SWARM</>}<span className="ml-auto normal-case tracking-normal font-medium">{message.role === 'assistant' && (message as Message & { modelName?: string }).modelName && <span className="mr-2 hidden sm:inline">{(message as Message & { modelName?: string }).modelName}</span>}{new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>
+                  <div className="mb-3 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[.12em] text-muted-foreground">{message.role === 'user' ? 'You' : <><img src="/brand/swarm-mark.png" alt="" className="h-4 w-4 object-contain" /> SWARM</>}<span className="ml-auto normal-case tracking-normal font-medium">{new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>
                   <div className="message-content text-[14px] text-foreground">{message.role === 'assistant' ? <ChatMarkdown text={message.content} /> : message.content}</div>
                   {message.role === 'user' && <div className="mt-3 flex gap-3 text-[11px] text-muted-foreground"><button data-testid={`edit-message-${message.id}`} disabled={busy || !selectedModel} onClick={() => startEdit(message)} className="hover:text-foreground disabled:opacity-40">Edit</button></div>}
                   {message.role === 'assistant' && <div className="mt-3 flex gap-3 text-[11px] text-muted-foreground"><CopyButton text={message.content} testId={`copy-message-${message.id}`}/><button data-testid={`regenerate-message-${message.id}`} disabled={busy || !selectedModel || !renderedMessages.slice(0,index).some((entry) => entry.role === 'user')} onClick={() => { const previousUser = renderedMessages.slice(0,index).reverse().find((entry) => entry.role === 'user'); if (previousUser) respondTo('regenerate', previousUser); }} className="hover:text-foreground disabled:opacity-40">Regenerate</button><button data-testid={`continue-message-${message.id}`} disabled={busy || !selectedModel} onClick={() => respondTo('continue', message)} className="hover:text-foreground disabled:opacity-40">Continue</button></div>}
@@ -321,40 +319,22 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
           {editingMessage && <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">Editing your message<button data-testid="button-cancel-edit" onClick={() => { setEditingMessage(null); setDraft(''); }} className="font-semibold text-foreground">Cancel</button></div>}
           <form data-testid="form-chat-composer" onSubmit={submit} className="rounded-2xl border border-border bg-card p-3 shadow-[0_8px_28px_rgba(16,17,20,.06)] focus-within:border-[#aaaaaa]">
             <textarea ref={inputRef} data-testid="input-chat-prompt" aria-label="Message SWARM" rows={2} maxLength={32000} value={draft} onChange={(e) => {setDraft(e.target.value);e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,192)+'px';}} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} placeholder={modelsLoading || validModels.length ? (mode==='swarm'?'What do you want to build?':'Ask SWARM anything…') : 'Write your message… AI service is temporarily unavailable.'} disabled={busy} className="min-h-[52px] max-h-48 w-full resize-y bg-transparent px-2 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60" />
-            <details className="composer-account"><summary><SlidersIcon/> Model preferences & allowance <ChevronDown size={12}/></summary><ManagedAccount compact/></details>
+            <details className="composer-account"><summary><SlidersIcon/> AI preferences & allowance <ChevronDown size={12}/></summary><ManagedAccount compact/></details>
       <div className="flex flex-wrap items-center gap-2 pt-2">
-              <label className="sr-only" htmlFor="model-select">Provider and model</label>
-              <select id="model-select" data-testid="select-chat-model" value={selectedModel?.id ?? ''} onChange={(e) => setModelId(e.target.value)} disabled={busy || !validModels.length || modelsLoading} className="max-w-[min(54vw,280px)] rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-semibold text-foreground outline-none focus:ring-2 focus:ring-[#101114]/20">
-                {!validModels.length && <option value="">{modelsLoading ? 'Loading models…' : 'No connected models'}</option>}
-                {validModels.length > 0 && <option value="auto">Account model profile</option>}
-                
-              </select>
-              {selectedModel && <span className="hidden text-[10px] text-muted-foreground sm:inline">{modelId === 'auto' ? activeModel || 'Chooses the best available model' : selectedModel.modelId}</span>}
+              <span className="sw-composer-status">{modelsLoading?'Connecting to SWARM…':busy?'SWARM is working':'SWARM AI'}</span>
               {!validModels.length && <Link href="/app/settings" className="inline-flex items-center gap-1 text-[11px] font-bold text-[#101114]"><Plus size={13} /> Settings</Link>}
               <span className="ml-auto text-[10px] text-muted-foreground">{mode === 'swarm' ? 'Enter to run' : 'Enter to send'}</span>
               <>{busy && <button type="button" data-testid="button-stop-response" onClick={() => requestRef.current?.abort()} className="rounded-full border border-border px-3 py-2 text-xs font-semibold">Stop</button>}</><button data-testid="button-send-message" type="submit" disabled={busy || !draft.trim() || !selectedModel} aria-label="Send message" className="grid h-9 w-9 place-items-center rounded-xl bg-[#101114] text-white transition-colors hover:bg-[#101114] disabled:opacity-40">{busy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <><ArrowUp size={17}/>{mode==='swarm'&&<span>Run</span>}</>}</button>
             </div>
           </form>
-          <p className="mt-2 text-center text-[10px] text-muted-foreground">{idleBuild?'The agent graph, activity, and project files appear here when your build starts.':'Review generated code before using it. Your provider’s limits apply.'}</p>
+          <p className="mt-2 text-center text-[10px] text-muted-foreground">{idleBuild?'The agent graph, activity, and project files appear here when your build starts.':'Review generated code before using it. Your account allowance applies.'}</p>
         </div>
       </div>
     </section>
     </BuildLayout>
-    {mode==='chat'&&<aside className="desktop-live-panel"><div className="desktop-live-heading"><small>YOUR AI TEAM</small><h2>Live work <i className={busy?'working':''}/></h2></div><section><h3><Workflow size={15}/> Agents <span>{latestBuildEvents.length?new Set(latestBuildEvents.map(e=>e.role)).size:0}</span></h3><p>{busy?'SWARM is working on your request.':'Build activity appears here when you start a project.'}</p></section><section><h3><FileCode2 size={15}/> Project files <span>{generatedFiles.length}</span></h3>{generatedFiles.length?generatedFiles.map(file=><p key={file.name}>{file.name}</p>):<p>Generated files will appear with download links in your conversation.</p>}</section><section><h3><Activity size={15}/> Activity</h3>{latestBuildEvents.length?latestBuildEvents.slice(-5).map((e,i)=><p key={i}>{e.name} · {e.status}</p>):<p>{busy?'Generating a response…':'Your latest work appears here.'}</p>}</section><section><h3>Model</h3><p>{activeModel|| (modelId==='auto'?'Auto · SWARM router':selectedModel?.displayName)||'SWARM AI is awaiting backend availability'}</p></section></aside>}
+    {mode==='chat'&&<aside className="desktop-live-panel"><div className="desktop-live-heading"><small>YOUR AI TEAM</small><h2>Live work <i className={busy?'working':''}/></h2></div><section><h3><Workflow size={15}/> Agents <span>{latestBuildEvents.length?new Set(latestBuildEvents.map(e=>e.role)).size:0}</span></h3><p>{busy?'SWARM is working on your request.':'Build activity appears here when you start a project.'}</p></section><section><h3><FileCode2 size={15}/> Project files <span>{generatedFiles.length}</span></h3>{generatedFiles.length?generatedFiles.map(file=><p key={file.name}>{file.name}</p>):<p>Generated files will appear with download links in your conversation.</p>}</section><section><h3><Activity size={15}/> Activity</h3>{latestBuildEvents.length?latestBuildEvents.slice(-5).map((e,i)=><p key={i}>{e.name} · {e.status}</p>):<p>{busy?'Generating a response…':'Your latest work appears here.'}</p>}</section></aside>}
   </div>;
 }
-
-const providerDescriptions: Record<string,string> = {
-  openai: 'Access GPT models with your OpenAI API key.',
-  openrouter: 'Connect a range of models through OpenRouter.',
-  nvidia: 'Use models available from NVIDIA NIM.',
-  groq: 'Connect fast inference with Groq.',
-  google: 'Use Gemini models with a Google AI key.',
-  cloudflare: 'Cloudflare Workers AI requires your account ID and API token.',
-  huggingface: 'Connect inference providers through Hugging Face.',
-  cerebras: 'Connect Cerebras inference.',
-  mistral: 'Use Mistral models with your API key.',
-};
 
 function SettingsPage() { return <PrivateShell><SettingsWorkspace providers={<ProviderSettings/>}/></PrivateShell>; }
 function ProviderSettings() { return <ManagedAccount/>; }
