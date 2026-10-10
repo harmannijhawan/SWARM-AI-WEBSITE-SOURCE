@@ -1,3 +1,6 @@
+import { accountUsage, fingerprint, managedTransaction, initializeAccount, ManagedError, planCatalog, reserveUsage, settleUsage, saveManagedPreferences } from './entitlements';
+import { cashfreeWebhook, checkoutAvailable, createCheckout, verifyOrder, cashfreeEnvironment } from './cashfree';
+import { modelPolicy, managedCredentials, eligibleModelIds, routingPolicy, safeProviderFailure, validateManagedMessages } from './managed-providers';
 import {projectPreview} from './project-preview';
 import { accountApi, accountTables, deviceOwner } from './accounts';
 import { codeFiles } from '../code-files';
@@ -5,9 +8,9 @@ import { zipSync, strToU8 } from 'fflate';
 import {Storage,storageContext} from './storage';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { randomBytes, randomUUID, createHash, createCipheriv, createDecipheriv } from 'node:crypto';
+import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import type { Conversation, StreamConversationInput } from '../cloud-api/generated/api.schemas';
-import { adapters, envNames } from './providers';
+import { adapters } from './providers';
 import type { ChatMessage, ProviderConfig } from './desktop-providers/types';
 import { rankAutomatic, type RouteHealth, type Purpose } from './auto-router';
 import type { Capability } from './desktop-providers/domain-types';
@@ -29,7 +32,7 @@ function state():State {
   return globalState.swarmWeb = {db,secret,active:new Set(),models:new Map()};
 }
 class HttpError extends Error { constructor(public status:number,message:string) {super(message);} }
-const json = (data:unknown,status=200) => Response.json(data,{status});
+const json = (data:unknown,status=200) => Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
 const now = () => new Date().toISOString();
 async function ownerFor(request:Request):Promise<string> {
   const url = new URL(request.url); const origin = request.headers.get('origin');
@@ -47,52 +50,34 @@ async function ownerFor(request:Request):Promise<string> {
   return 'local-workspace';
 }
 async function accountPreferences(owner:string):Promise<any>{await accountTables(state().db);const row=await state().db.prepare('SELECT data FROM account_documents WHERE owner=? AND id=?').get(owner,'preferences') as {data:string}|undefined;return row?JSON.parse(row.data):{};}
-async function credentials(owner:string,provider:string,respectSettings=true):Promise<ProviderConfig|null> {
-  const adapter = adapters.find(a=>a.id===provider); if (!adapter) return null;
-  const row = await state().db.prepare('SELECT data FROM credentials WHERE owner=? AND provider=?').get(owner,provider) as {data:string}|undefined;
-  let apiKey:string|null=null; let accountId:string|null=null;
-  if (row) {
-    const value = JSON.parse(row.data); if (value.disabled) return null;
-    const decipher = createDecipheriv('aes-256-gcm',state().secret,Buffer.from(value.iv,'base64'));
-    decipher.setAAD(Buffer.from(`${owner}:${provider}`));decipher.setAuthTag(Buffer.from(value.tag,'base64'));
-    apiKey=Buffer.concat([decipher.update(Buffer.from(value.encrypted,'base64')),decipher.final()]).toString('utf8');accountId=value.accountId;
-  } else if (owner==='local-workspace') {
-    apiKey=(envNames[provider]||[]).map(name=>process.env[name]).find(Boolean)||null;accountId=process.env.CLOUDFLARE_ACCOUNT_ID||null;
-  }
-  if (!apiKey || (adapter.needsAccountId && !accountId)) return null;
-  const settings=respectSettings?await accountPreferences(owner):{};if(settings.providers?.enabled?.[provider]===false)return null;const baseUrl=adapter.defaultBaseUrl;return {apiKey,accountId,baseUrl};
-}
-export async function storeAccountKey(owner:string,provider:string,apiKey:string|null,accountId:string|null=null) {
-  if(!apiKey){await state().db.prepare('INSERT OR REPLACE INTO credentials VALUES(?,?,?)').run(owner,provider,JSON.stringify({disabled:true}));state().models.delete(owner);return;}
-  const iv=randomBytes(12);const cipher=createCipheriv('aes-256-gcm',state().secret,iv);cipher.setAAD(Buffer.from(owner+':'+provider));
-  const encrypted=Buffer.concat([cipher.update(apiKey,'utf8'),cipher.final()]);
-  await state().db.prepare('INSERT OR REPLACE INTO credentials VALUES(?,?,?)').run(owner,provider,JSON.stringify({encrypted:encrypted.toString('base64'),iv:iv.toString('base64'),tag:cipher.getAuthTag().toString('base64'),accountId}));state().models.delete(owner);
-}
+async function credentials(_owner:string,provider:string,_respectSettings=true):Promise<ProviderConfig|null> { return managedCredentials(provider); }
+export async function storeAccountKey() { throw new ManagedError(403,'managed_credentials','Provider credentials are managed exclusively by SWARM.'); }
 export async function claimLocalAccount(id:string,email:string) {
   const st=state();await accountTables(st.db);await st.db.exec('BEGIN IMMEDIATE');
   try {
     await st.db.prepare('INSERT OR REPLACE INTO accounts VALUES(?,?,?)').run(id,email,'owner');
     const count=(await st.db.prepare('UPDATE conversations SET owner=? WHERE owner=?').run(id,'local-workspace')).changes;
-    let keys=0;for(const adapter of adapters){if(await credentials(id,adapter.id))continue;const config=await credentials('local-workspace',adapter.id);if(config){await storeAccountKey(id,adapter.id,config.apiKey,config.accountId||null);keys++;}}
-    await st.db.prepare('DELETE FROM credentials WHERE owner=?').run('local-workspace');await st.db.exec('COMMIT');return {conversations:Number(count),providers:keys};
+    const keys=0;
+    await st.db.exec('COMMIT');return {conversations:Number(count),providers:keys};
   }catch(e){await st.db.exec('ROLLBACK');throw e;}
 }
 export function accountDatabase(){return state().db;}
 export function accountEncryptionKey(){return state().secret.toString('base64');}
 async function summary(owner:string,provider:string) {
   const adapter=adapters.find(a=>a.id===provider)!;const config=await credentials(owner,provider);
-  return {providerId:provider,name:adapter.name,configured:!!config,needsAccountId:adapter.needsAccountId,accountId:config?.accountId||null,keyHint:config?.apiKey?`â€¢â€¢â€¢â€¢${config.apiKey.slice(-4)}`:null};
+  return {providerId:provider,name:adapter.name,configured:!!config,needsAccountId:false,accountId:null,keyHint:null,managed:true};
 }
 async function modelList(owner:string) {
-  const cache=state().models.get(owner);if(cache && Date.now()-cache.time<60000)return cache.value;
+  const eligible=new Set(await eligibleModelIds(state().db,owner));
+  const cacheKey=JSON.stringify([[...eligible],adapters.map(a=>{const c=managedCredentials(a.id);return c?fingerprint([a.id,c.apiKey,c.accountId]):a.id+':unconfigured';})]);const cache=state().models.get(cacheKey);if(cache && Date.now()-cache.time<60000)return cache.value;
   const models:Model[]=[];const errors:{providerId:string;error:string}[]=[];
   await Promise.all(adapters.map(async adapter=>{
-    const config=await credentials(owner,adapter.id);if(!config)return;
-    try {const found=await adapter.discover(config,AbortSignal.timeout(18000));models.push(...found.map(m=>({id:`${adapter.id}:${m.modelId}`,modelId:m.modelId,displayName:m.displayName,providerId:adapter.id,providerName:adapter.name,capabilities:m.capabilities,contextLength:m.contextLength})));}
-    catch {errors.push({providerId:adapter.id,error:'Provider discovery failed. Check its key or retry.'});}
+    const config=await credentials(owner,adapter.id);if(!config||![...eligible].some(id=>id.startsWith(adapter.id+':')))return;
+    try {const found=await adapter.discover(config,AbortSignal.timeout(18000));models.push(...found.filter(m=>eligible.has(adapter.id+':'+m.modelId)).map(m=>({id:`${adapter.id}:${m.modelId}`,modelId:m.modelId,displayName:m.displayName,providerId:adapter.id,providerName:adapter.name,capabilities:m.capabilities,contextLength:m.contextLength})));}
+    catch {errors.push({providerId:adapter.id,error:'SWARM provider discovery is temporarily unavailable.'});}
   }));
   models.sort((a,b)=>adapters.findIndex(p=>p.id===a.providerId)-adapters.findIndex(p=>p.id===b.providerId)||a.modelId.localeCompare(b.modelId));
-  const value={models,errors};state().models.set(owner,{time:Date.now(),value});return value;
+  const value={models,errors};state().models.set(cacheKey,{time:Date.now(),value});return value;
 }
 async function getConversation(owner:string,id:string):Promise<Conversation> {
   const row=await state().db.prepare('SELECT data FROM conversations WHERE id=? AND owner=?').get(id,owner) as {data:string}|undefined;
@@ -102,27 +87,22 @@ async function saveConversation(owner:string,c:Conversation) {
   c.updatedAt=now();await state().db.prepare('INSERT INTO conversations(id,owner,data) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data WHERE owner=excluded.owner').run(c.id,owner,JSON.stringify(c));
 }
 async function bodyFor(request:Request):Promise<Record<string,unknown>> {
-  const text=await request.text();if(text.length>100000)throw new HttpError(413,'Request is too large.');
+  const text=await request.text();if(text.length>(new URL(request.url).pathname==='/api/managed/complete'?6500000:100000))throw new HttpError(413,'Request is too large.');
   try {const value=JSON.parse(text||'{}');if(!value||typeof value!=='object'||Array.isArray(value))throw new Error();return value;}catch{throw new HttpError(400,'Invalid JSON request.');}
 }
 async function routeHealth(owner:string,id:string):Promise<RouteHealth|undefined> {
+  owner='swarm-managed';
   
   const row=await state().db.prepare('SELECT data FROM routing_health WHERE owner=? AND id=?').get(owner,id) as {data:string}|undefined;
   return row?JSON.parse(row.data):undefined;
 }
 async function recordRoute(owner:string,id:string,ok:boolean,latency:number,tokens=0,error?:unknown) {
+  owner='swarm-managed';
   const old=(await routeHealth(owner,id))||{calls:0,successes:0,consecutiveFailures:0,latencyMs:null,cooldownUntil:0,tokensPerSec:null};
   const value:RouteHealth={calls:old.calls+1,successes:old.successes+(ok?1:0),consecutiveFailures:ok?0:old.consecutiveFailures+1,latencyMs:ok?latency:old.latencyMs,tokensPerSec:ok&&latency?tokens/(latency/1000):old.tokensPerSec,cooldownUntil:ok?0:Date.now()+(error instanceof ProviderError&&['auth','quota'].includes(error.kind)?300000:60000)};
   await state().db.prepare('INSERT OR REPLACE INTO routing_health(owner,id,data) VALUES(?,?,?)').run(owner,id,JSON.stringify(value));
 }
-function providerError(error:unknown) {
-  if(error instanceof ProviderError) {
-    if(error.kind==='auth')return 'The provider rejected its API key. Replace it in Settings.';
-    if(['quota','rate_limit'].includes(error.kind))return 'This provider has reached its usage limit. Choose another provider or try later.';
-    if(error.kind==='timeout')return 'The model took too long. Try another model.';
-  }
-  return 'The model request failed. Choose another available model or check provider settings.';
-}
+const providerError = safeProviderFailure;
 async function streamChat(request:Request,owner:string,id:string,raw:Record<string,unknown>):Promise<Response> {
   const budget=chatBudget(request.signal);
   try { return await streamChatWithBudget(request,owner,id,raw,budget); }
@@ -135,8 +115,8 @@ async function streamChatWithBudget(request:Request,owner:string,id:string,raw:R
   if(!['send','edit','regenerate','continue'].includes(input.action)||!['chat','swarm'].includes(input.mode)||typeof input.modelId!=='string'||input.modelId.length>200)throw new HttpError(400,'Invalid chat request.');
   const automatic=input.modelId==='auto';
   const adapter=adapters.find(a=>a.id===input.providerId);const config=adapter&&await credentials(owner,adapter.id);
-  if(!automatic&&(!adapter||!config))throw new HttpError(412,'Connect a provider in Settings.');
-  const c=await getConversation(owner,id);const lock=`${owner}:${id}`;
+  if(!automatic&&(!adapter||!config))throw new HttpError(412,'SWARM has no configured provider for this model. Please retry later.');
+  const c=await getConversation(owner,id);let reservation:string|undefined;let succeeded=false;const lock=`${owner}:${id}`;
   if(state().active.has(lock))throw new HttpError(409,'This conversation is already responding.');const lease=randomUUID();const acquired=await state().db.prepare('INSERT INTO active_runs(owner,id,lease,expires) VALUES(?,?,?,?) ON CONFLICT(owner,id) DO UPDATE SET lease=excluded.lease,expires=excluded.expires WHERE active_runs.expires<? RETURNING lease').get(owner,id,lease,Date.now()+360000,Date.now());if(!acquired)throw new HttpError(409,'This conversation is already responding.');state().active.add(lock);
   try {
     const available=await modelList(owner);
@@ -149,9 +129,10 @@ async function streamChatWithBudget(request:Request,owner:string,id:string,raw:R
       if(target<0)throw new HttpError(400,'Choose a user message to edit or regenerate.');c.messages=c.messages.slice(0,target+1);
       if(input.action==='edit')c.messages[target].content=prompt;
     }else if(input.action==='continue'&&c.messages.at(-1)?.role!=='assistant')throw new HttpError(400,'There is no response to continue.');
+    reservation=await reserveUsage(state().db,owner,clientRequestId||requestId,input.mode==='swarm'?'build':'chat',{id,raw});
     if(input.action==='send'){const message={id:Date.now(),role:'user' as const,content:prompt,createdAt:now(),requestId:clientRequestId};c.messages.push(message);}
     if(['New chat','New conversation'].includes(c.title))c.title=prompt.replace(/\s+/g,' ').slice(0,80)||c.title;await saveConversation(owner,c);
-  }catch(error){state().active.delete(lock);await state().db.prepare('DELETE FROM active_runs WHERE owner=? AND id=? AND lease=?').run(owner,id,lease);throw error;}
+  }catch(error){if(reservation)await settleUsage(state().db,owner,reservation,false);state().active.delete(lock);await state().db.prepare('DELETE FROM active_runs WHERE owner=? AND id=? AND lease=?').run(owner,id,lease);throw error;}
   const abort=budget;let disconnected=request.signal.aborted;const cancel=()=>{disconnected=true;abort.abort();};request.signal.addEventListener('abort',cancel,{once:true});
   const encoder=new TextEncoder();let content='';let routedModel:Model|undefined;const buildEvents:{role:string;name:string;status:string;time:number;output?:string}[]=[];
   const stream=new ReadableStream<Uint8Array>({
@@ -164,11 +145,12 @@ async function streamChatWithBudget(request:Request,owner:string,id:string,raw:R
       if(input.action==='continue')history.push({role:'system',content:'Continue the previous answer without repeating it.'});
       const complete=async(messages:ChatMessage[],streaming:boolean,purpose?:Purpose)=>{
         stage=purpose||'chat';abort.signal.throwIfAborted();
-        const available=(await modelList(owner)).models;
+        const policy=await routingPolicy(state().db,owner);
+        const available=(await modelList(owner)).models.filter(m=>policy.ids.includes(m.id));
         const text=c.messages.filter(m=>m.role==='user').at(-1)?.content||'';
         const promptTokens=messages.reduce((total,m)=>total+(typeof m.content==='string'?Math.ceil(m.content.length/4):800),0);
-        const healthRows=await state().db.prepare('SELECT id,data FROM routing_health WHERE owner=?').all(owner) as {id:string;data:string}[];const health=new Map(healthRows.map(r=>[r.id,JSON.parse(r.data) as RouteHealth]));
-        const preferences=await accountPreferences(owner);
+        const healthRows=await state().db.prepare('SELECT id,data FROM routing_health WHERE owner=?').all('swarm-managed') as {id:string;data:string}[];const health=new Map(healthRows.map(r=>[r.id,JSON.parse(r.data) as RouteHealth]));
+        const preferences=await accountPreferences(owner);preferences.ai={...preferences.ai,freeMode:false,routing:policy.routing};
         const ranked=automatic?rankAutomatic(available,text,id=>health.get(id),promptTokens,purpose,preferences):available.filter(m=>m.providerId===input.providerId&&m.modelId===input.modelId);
         let lastError:unknown;const skip=new Set<string>();let attempts=0;
         for(const pick of ranked){
@@ -176,12 +158,12 @@ async function streamChatWithBudget(request:Request,owner:string,id:string,raw:R
           const candidate=adapters.find(a=>a.id===pick.providerId)!;const cfg=await credentials(owner,pick.providerId);if(!cfg)continue;
           abort.signal.throwIfAborted();attempt++;const started=Date.now();routedModel=pick;event('model',{modelId:pick.modelId,providerId:pick.providerId,displayName:pick.displayName,providerName:pick.providerName,automatic});
           try {
-            const result=await candidate.chat(cfg,pick.modelId,{messages,signal:abort.signal,maxTokens:streaming?(preferences.ai?.maxOutputTokens??4096):1800,temperature:preferences.ai?.temperature??0.4,stream:streaming,firstTokenTimeoutMs:Math.min(60000,budget.remaining()),totalTimeoutMs:Math.min(180000,budget.remaining()),onToken:streaming?token=>{content+=token;event('delta',{token});}:undefined});
+            const result=await candidate.chat(cfg,pick.modelId,{messages,reasoningEffort:policy.reasoningEffort,signal:abort.signal,maxTokens:streaming?Math.min(preferences.ai?.maxOutputTokens??4096,4096):1800,temperature:preferences.ai?.temperature??0.4,stream:streaming,firstTokenTimeoutMs:Math.min(60000,budget.remaining()),totalTimeoutMs:Math.min(180000,budget.remaining()),onToken:streaming?token=>{content+=token;event('delta',{token});}:undefined});
             if(!result.text.trim())throw new ProviderError('invalid','Empty response');
             await recordRoute(owner,pick.id,true,result.latencyMs,result.completionTokens);return result;
           }catch(error){
             if(abort.signal.aborted)throw error;lastError=error;await recordRoute(owner,pick.id,false,Date.now()-started,0,error);
-            if(!automatic)throw error;if(error instanceof ProviderError&&['auth','quota','network'].includes(error.kind))skip.add(pick.providerId);
+            if(!automatic)throw error;if(error instanceof ProviderError&&['auth','quota','network','rate_limit'].includes(error.kind))skip.add(pick.providerId);
             if(streaming){content='';event('reset',{});}event('routing',{status:'fallback',message:'Trying another available model…'});
           }
         }
@@ -199,7 +181,7 @@ async function streamChatWithBudget(request:Request,owner:string,id:string,raw:R
         }else content=(await complete([{role:'system',content:system},...history],true)).text;
         if(!content.trim())throw new Error('Empty response');
         if(input.mode==='swarm'){event('agent',{role:'finalizer',name:'Finalizer',status:'working'});const files=codeFiles(content);if(files.length)zipSync(Object.fromEntries(files.map(f=>[f.name,strToU8(f.content)])));event('agent',{role:'finalizer',name:'Finalizer',status:'completed',output:files.length?`Packaged ${files.length} files for download:\n${files.map(f=>f.name).join('\n')}`:'No code files were returned for this request.'});}
-        const message={buildEvents:input.mode==='swarm'?buildEvents:undefined,id:Date.now(),role:'assistant' as const,content,createdAt:now(),modelName:routedModel?`${routedModel.displayName} · ${routedModel.providerName}`:undefined};c.messages.push(message);await saveConversation(owner,c);event('done',{message,conversation:c});
+        const message={buildEvents:input.mode==='swarm'?buildEvents:undefined,id:Date.now(),role:'assistant' as const,content,createdAt:now(),modelName:routedModel?`${routedModel.displayName} · ${routedModel.providerName}`:undefined};c.messages.push(message);await saveConversation(owner,c);await settleUsage(state().db,owner,reservation!,true);succeeded=true;event('done',{message,conversation:c});
       }catch(error){
         const category=budget.timedOut?'timeout':abort.signal.aborted?'cancelled':error instanceof ProviderError?error.kind:'server';
         const diagnostic={requestId,durationMs:Date.now()-requestStarted,stage,category,status:error instanceof ProviderError?error.status:undefined,attempt,retryCount:Math.max(0,attempt-1),timedOut:category==='timeout',aborted:category==='cancelled',connectionLost:category==='network'};
@@ -207,34 +189,101 @@ async function streamChatWithBudget(request:Request,owner:string,id:string,raw:R
         if(input.mode==='swarm'){const latest=buildEvents.filter(e=>e.status==='working').at(-1);if(latest)event('agent',{role:latest.role,name:latest.name,status:'failed'});}
         if(disconnected&&content.trim()){c.messages.push({id:Date.now(),role:'assistant',content:content+'\n\n*Response stopped.*',createdAt:now()});await saveConversation(owner,c);}
         else event('error',{error:budget.timedOut?'This project reached its time limit. Your message is saved; try a smaller task.':providerError(error),...diagnostic,retryable:['network','timeout','rate_limit','server'].includes(category)});
-      }finally{clearInterval(heartbeat);budget.dispose();state().active.delete(lock);await state().db.prepare('DELETE FROM active_runs WHERE owner=? AND id=? AND lease=?').run(owner,id,lease).catch(()=>{});request.signal.removeEventListener('abort',cancel);try{controller.close();}catch{}}
+      }finally{if(reservation&&!succeeded)await settleUsage(state().db,owner,reservation,false);clearInterval(heartbeat);budget.dispose();state().active.delete(lock);await state().db.prepare('DELETE FROM active_runs WHERE owner=? AND id=? AND lease=?').run(owner,id,lease).catch(()=>{});request.signal.removeEventListener('abort',cancel);try{controller.close();}catch{}}
     },cancel(){cancel();},
   });
   return new Response(stream,{headers:{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-transform','X-Accel-Buffering':'no','X-Request-Id':requestId}});
 }
+async function startManagedOperation(owner:string,raw:Record<string,unknown>) {
+  const kind=raw.kind==='build'?'build':raw.kind==='chat'?'chat':null;
+  if(!kind||typeof raw.id!=='string')throw new ManagedError(400,'operation','Invalid SWARM operation.');
+  const db=state().db;
+  const previous=await db.prepare('SELECT id,kind,expires FROM managed_operations WHERE owner=? AND id=?').get(owner,raw.id);
+  if(previous){if(previous.kind!==kind||Number(previous.expires)<Date.now())throw new ManagedError(409,'operation_expired','Start a new SWARM operation.');return previous;}
+  if(!(await modelList(owner)).models.length)throw new ManagedError(503,'no_provider','SWARM AI is awaiting an available backend provider. No API-key setup is required.');
+  await reserveUsage(db,owner,raw.id,kind,{kind});
+  const expires=Date.now()+3600000;
+  await db.prepare('INSERT INTO managed_operations VALUES(?,?,?,0,0,?)').run(owner,raw.id,kind,expires);
+  return {id:raw.id,kind,expires};
+}
+async function managedComplete(request:Request,owner:string,raw:Record<string,unknown>) {
+  const db=state().db;const messages=validateManagedMessages(raw.messages);
+  if(typeof raw.operationId!=='string'||typeof raw.requestId!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(raw.requestId))throw new ManagedError(400,'request','Invalid inference request.');
+  const operationId=raw.operationId,requestId=raw.requestId,hash=fingerprint(raw);
+  const policy=await routingPolicy(db,owner),usage=await accountUsage(db,owner);
+  if(raw.needs!==undefined&&(!Array.isArray(raw.needs)||raw.needs.some(n=>!['chat','coding','reasoning','vision','fast','long_context','tools'].includes(String(n)))))throw new ManagedError(400,'capabilities','Invalid model capabilities.');
+  const needs=[...(raw.needs as string[]||[]),...(messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==='image'))?['vision']:[])];
+  const purpose=['plan','research','design','architecture','code','review','vision','classify','summarize','test'].includes(String(raw.purpose))?raw.purpose as Purpose:'code';
+  const models=(await modelList(owner)).models.filter(m=>policy.ids.includes(m.id)&&needs.every(n=>m.capabilities?.includes(n as Capability))&&(!raw.pinned||raw.pinned===m.id));
+  const ranks=rankAutomatic(models,'',()=>undefined,messages.reduce((n,m)=>n+(typeof m.content==='string'?Math.ceil(m.content.length/4):m.content.reduce((total,p)=>total+(p.type==='text'?Math.ceil(p.text.length/4):800),0)),0),purpose,{ai:{routing:policy.routing,freeMode:false}});
+  if(!ranks.length)throw new ManagedError(503,'no_provider','No eligible SWARM backend model is available.');
+  const cached=await managedTransaction(db,owner,async()=>{
+    const previous=await db.prepare('SELECT fingerprint,result FROM inference_requests WHERE owner=? AND id=?').get(owner,requestId);
+    if(previous){if(previous.fingerprint!==hash||!previous.result)throw new ManagedError(409,'inference_duplicate','This inference request is already running or cannot be replayed.');return JSON.parse(String(previous.result));}
+    const op=await db.prepare('SELECT * FROM managed_operations WHERE owner=? AND id=?').get(owner,operationId);
+    if(!op||Number(op.expires)<Date.now())throw new ManagedError(403,'operation_expired','Start a new SWARM operation.');
+    const maxCalls=Number(process.env[op.kind==='build'?'SWARM_NATIVE_BUILD_CALLS':'SWARM_NATIVE_CHAT_CALLS']|| (op.kind==='build'?32:8));
+    if(!Number.isSafeInteger(maxCalls)||maxCalls<1||Number(op.calls)>=maxCalls)throw new ManagedError(429,'operation_budget','This operation reached its inference budget.');
+    const active=await db.prepare('SELECT SUM(active) AS n FROM managed_operations WHERE owner=? AND expires>?').get(owner,Date.now());
+    if(Number(active?.n||0)>=usage.plan.concurrency)throw new ManagedError(429,'concurrency','Wait for the current inference request to finish.');
+    await db.prepare('UPDATE managed_operations SET calls=calls+1,active=active+1 WHERE owner=? AND id=?').run(owner,operationId);
+    await db.prepare('INSERT INTO inference_requests VALUES(?,?,?,?,NULL)').run(owner,requestId,operationId,hash);
+    return null;
+  });
+  if(cached)return cached;
+  try {
+    const skip=new Set<string>();let last:unknown;const signal=AbortSignal.any([request.signal,AbortSignal.timeout(180000)]);
+    for(const pick of ranks.slice(0,3)){
+      if(skip.has(pick.providerId))continue;const adapter=adapters.find(a=>a.id===pick.providerId)!;const config=managedCredentials(pick.providerId);if(!config)continue;
+      try{
+        const result=await adapter.chat(config,pick.modelId,{messages,reasoningEffort:policy.reasoningEffort,maxTokens:Math.min(4096,Math.max(128,Number(raw.maxTokens)||4096)),temperature:0.3,signal,stream:false,json:raw.json===true,firstTokenTimeoutMs:45000,totalTimeoutMs:180000});
+        if(!result.text.trim())throw new ProviderError('invalid','Empty response');
+        const response={result,model:pick};
+        await managedTransaction(db,owner,async()=>{await settleUsage(db,owner,operationId,true);await db.prepare('UPDATE inference_requests SET result=? WHERE owner=? AND id=?').run(JSON.stringify(response),owner,requestId);});
+        return response;
+      }catch(error){last=error;if(signal.aborted)break;if(error instanceof ProviderError&&['auth','quota','rate_limit'].includes(error.kind))skip.add(pick.providerId);}
+    }
+    throw new ManagedError(503,'provider_unavailable',safeProviderFailure(last));
+  }finally{await db.prepare('UPDATE managed_operations SET active=active-1 WHERE owner=? AND id=?').run(owner,operationId);}
+}
 export async function handleApi(request:Request,path:string[]):Promise<Response> {return storageContext(()=>handleApiInner(request,path));}
 async function handleApiInner(request:Request,path:string[]):Promise<Response> {
   try {
+    if(path.join('/')==='plans'&&request.method==='GET')return json({catalog:planCatalog(),checkoutAvailable:checkoutAvailable(),billingMode:cashfreeEnvironment().mode});
+    if(path.join('/')==='billing/webhook'&&request.method==='POST')return json(await cashfreeWebhook(state().db,request));
     const exchange=path.join('/')==='account/desktop-token';
     const owner=exchange?null:await ownerFor(request);const method=request.method;
-    const account=await accountApi(request,path,owner,{db:state().db,readKey:async(o,p)=>{const c=await credentials(o,p,false);return c?.apiKey?{apiKey:c.apiKey,accountId:c.accountId||null}:null;},writeKey:storeAccountKey,providers:adapters.map(a=>a.id),active:state().active});if(account)return account;
+    if(owner)await initializeAccount(state().db,owner);
+    if(owner&&path.join('/')==='account/entitlements'&&method==='GET'){
+      const usage=await accountUsage(state().db,owner),policy=modelPolicy(),models=(await modelList(owner)).models;
+      const available=(ids:string[])=>models.some(m=>ids.includes(m.id));
+      return json({...usage,catalog:planCatalog(),checkoutAvailable:checkoutAvailable(),billingMode:cashfreeEnvironment().mode,profiles:[{id:'swe',name:'SWARM SWE',eligible:true,available:available(policy.standard)},{id:'flash',name:'SWARM Flash',eligible:true,available:available(policy.standard)},{id:'premium',name:'SWARM Premium',eligible:usage.plan.premium,available:available(policy.premium)}]});
+    }
+    if(owner&&path.join('/')==='account/model-preferences'&&method==='POST'){const b=await bodyFor(request);
+      if(typeof b.profile!=='string'||typeof b.speed!=='string'||!['swe','flash','premium'].includes(b.profile)||!['fast','balanced','quality'].includes(b.speed))throw new ManagedError(400,'preferences','Choose a supported model profile and generation mode.');
+      if(b.profile==='premium'&&!(await accountUsage(state().db,owner)).plan.premium)throw new ManagedError(403,'premium_required','SWARM Premium requires Pro.');
+const policy=modelPolicy();const ids=b.profile==='premium'?policy.premium:policy.standard;if(!(await modelList(owner)).models.some(m=>ids.includes(m.id)))throw new ManagedError(503,'model_unavailable','This SWARM profile is not currently configured.');return json(await saveManagedPreferences(state().db,owner,b.profile,b.speed));}
+    if(owner&&path[0]==='billing'){
+      if(path[1]==='checkout'&&method==='POST'){const b=await bodyFor(request);if(b.plan!=='pro'||b.amount!==undefined)throw new ManagedError(400,'plan','Choose the configured Pro plan.');return json(await createCheckout(state().db,owner,b.requestId,b.phone));}
+      if(path[1]==='verify'&&method==='POST'){const b=await bodyFor(request);if(typeof b.orderId!=='string')throw new ManagedError(400,'order','Choose a payment order.');return json(await verifyOrder(state().db,owner,b.orderId));}
+      if(path[1]==='history'&&method==='GET')return json({transactions:await state().db.prepare('SELECT id,amount,days,status,payment,created,fulfilled FROM payment_orders WHERE owner=? ORDER BY created DESC').all(owner)});
+    }
+    if(owner&&path.join('/')==='managed/finish'&&method==='POST'){
+      const b=await bodyFor(request);if(typeof b.id!=='string')throw new ManagedError(400,'operation','Invalid operation.');
+      await managedTransaction(state().db,owner,async()=>{
+        const op=await state().db.prepare('SELECT active FROM managed_operations WHERE owner=? AND id=?').get(owner,b.id);
+        if(op&&Number(op.active)===0){await settleUsage(state().db,owner,b.id as string,false);await state().db.prepare('UPDATE managed_operations SET expires=0 WHERE owner=? AND id=?').run(owner,b.id);}
+      });return json({ok:true});
+    }
+    if(owner&&path.join('/')==='managed/operation'&&method==='POST')return json(await startManagedOperation(owner,await bodyFor(request)));
+    if(owner&&path.join('/')==='managed/complete'&&method==='POST')return json(await managedComplete(request,owner,await bodyFor(request)));
+    const account=await accountApi(request,path,owner,{db:state().db,readKey:async()=>null,writeKey:storeAccountKey,providers:adapters.map(a=>a.id),active:state().active});if(account)return account;
     if(!owner)throw new HttpError(401,'Sign in to continue.');
     if(path[0]==='health'&&method==='GET')return json({status:'ok',mode:process.env.CLERK_SECRET_KEY?'account':'local'});
     if(path[0]==='models'&&method==='GET')return json(await modelList(owner));
     if(path[0]==='providers'){
       if(path.length===1&&method==='GET')return json({providers:await Promise.all(adapters.map(a=>summary(owner,a.id)))});
-      const provider=path[1];const adapter=adapters.find(a=>a.id===provider);if(!adapter)throw new HttpError(400,'Unsupported provider.');
-      if(method==='PUT'){
-        const body=await bodyFor(request);const apiKey=typeof body.apiKey==='string'?body.apiKey.trim():'';
-        if(apiKey.length<8||apiKey.length>4096||/[\r\n\0]/.test(apiKey))throw new HttpError(400,'Enter a valid API key.');
-        const accountId=typeof body.accountId==='string'?body.accountId.trim():null;
-        if(adapter.needsAccountId&&(!accountId||!/^[a-zA-Z0-9_-]{8,160}$/.test(accountId)))throw new HttpError(400,'Enter a valid Cloudflare account ID.');
-        const iv=randomBytes(12);const cipher=createCipheriv('aes-256-gcm',state().secret,iv);cipher.setAAD(Buffer.from(`${owner}:${provider}`));
-        const encrypted=Buffer.concat([cipher.update(apiKey,'utf8'),cipher.final()]);
-        await state().db.prepare('INSERT OR REPLACE INTO credentials(owner,provider,data) VALUES(?,?,?)').run(owner,provider,JSON.stringify({encrypted:encrypted.toString('base64'),iv:iv.toString('base64'),tag:cipher.getAuthTag().toString('base64'),accountId}));
-        state().models.delete(owner);return json({provider:await summary(owner,provider)});
-      }
-      if(method==='DELETE'){await state().db.prepare('INSERT OR REPLACE INTO credentials(owner,provider,data) VALUES(?,?,?)').run(owner,provider,JSON.stringify({disabled:true}));state().models.delete(owner);return new Response(null,{status:204});}
+      throw new ManagedError(403,'managed_credentials','AI providers are managed by SWARM; no provider keys are accepted from clients.');
     }
     if(path[0]==='conversations'){
       if(path.length===1&&method==='GET'){
@@ -255,5 +304,5 @@ async function handleApiInner(request:Request,path:string[]):Promise<Response> {
       if(path.length===2&&method==='DELETE'){await accountTables(state().db);await state().db.prepare('INSERT OR IGNORE INTO sync_deleted VALUES(?,?)').run(owner,id);await state().db.prepare('DELETE FROM conversations WHERE owner=? AND id=?').run(owner,id);return new Response(null,{status:204});}
     }
     return json({error:'Endpoint not found.'},404);
-  }catch(error){return json({error:error instanceof HttpError?error.message:'The server could not complete this request.'},error instanceof HttpError?error.status:500);}
+  }catch(error){return json({error:error instanceof HttpError||error instanceof ManagedError?error.message:'The server could not complete this request.',...(error instanceof ManagedError?{code:error.code}:{})},error instanceof HttpError||error instanceof ManagedError?error.status:500);}
 }

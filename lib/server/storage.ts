@@ -2,10 +2,13 @@ import {DatabaseSync} from 'node:sqlite';
 import {Pool,type PoolClient} from 'pg';
 import {AsyncLocalStorage} from 'node:async_hooks';
 const tables:Record<string,{columns:string[];key:string[]}>= {
+  managed_operations:{columns:['owner','id','kind','calls','active','expires'],key:['owner','id']},
+  inference_requests:{columns:['owner','id','operation','fingerprint','result'],key:['owner','id']},
   entitlements:{columns:['owner','created','pro_until','profile','speed'],key:['owner']},
   usage_ledger:{columns:['owner','id','kind','period','state','fingerprint','created'],key:['owner','id']},
   payment_orders:{columns:['id','owner','request_key','amount','days','status','session','payment','created','fulfilled'],key:['id']},
   payment_events:{columns:['id','order_id','created'],key:['id']},
+  payment_environments:{columns:['id','mode'],key:['id']},
   active_runs:{columns:['owner','id','lease','expires'],key:['owner','id']},
   conversations:{columns:['id','owner','data'],key:['id']},credentials:{columns:['owner','provider','data'],key:['owner','provider']},
   accounts:{columns:['id','email','role'],key:['id']},device_sessions:{columns:['hash','owner','name','expires'],key:['hash']},

@@ -77,6 +77,7 @@ export async function accountApi(req:Request,path:string[],owner:string|null,d:D
     const token=req.headers.get('authorization')?.replace(/^Bearer /,'')||'';
     if(!token.startsWith('swarm_device_')||await deviceOwner(d.db,token)!==owner)return fail('Desktop device authentication required.',403);
     if(!Array.isArray(body.changes)||body.changes.length>1000)return fail('Invalid sync changes.');
+    if(body.changes.some((c:any)=>c?.kind==='provider'))return fail('Provider credentials are managed exclusively by SWARM.',403);
     const conflicts:string[]=[],busy:string[]=[];
     await d.db.exec('BEGIN IMMEDIATE');if(d.db instanceof Storage)await d.db.lockOwner(owner);
     try {
@@ -105,7 +106,6 @@ export async function accountApi(req:Request,path:string[],owner:string|null,d:D
     const records:any[]=[];
     for(const row of await d.db.prepare('SELECT id,data FROM conversations WHERE owner=?').all(owner) as {id:string;data:string}[]){const value=JSON.parse(row.data);records.push({kind:'chat',id:row.id,value,version:hash(JSON.stringify(value))});}
     for(const row of await d.db.prepare('SELECT id FROM sync_deleted WHERE owner=?').all(owner))records.push({kind:'chat',id:row.id,value:null,version:null});
-    for(const id of d.providers){const value=await d.readKey(owner,id);records.push({kind:'provider',id,value,version:value?hash(JSON.stringify(value)):null});}
     for(const row of await d.db.prepare('SELECT id,data FROM account_documents WHERE owner=?').all(owner) as {id:string;data:string}[]){const value=JSON.parse(row.data);records.push({kind:'document',id:row.id,value,version:hash(JSON.stringify(value))});}
     return json({account:await accountProfile(d.db,owner),records,conflicts,busy});
   }

@@ -17,8 +17,8 @@ test('desktop grants require PKCE, expire, and cannot be replayed; devices are a
   assert.equal((await call('desktop-token',null,{code,verifier}))?.status,401);
   assert.equal((await call('sync','alice',{changes:[]}))?.status,403);
   assert.equal((await call('sync','bob',{changes:[]},session.token))?.status,403);
-  assert.equal((await call('sync','alice',{changes:[{kind:'provider',id:'groq',base:null,value:{apiKey:'fixture-provider-secret',accountId:null}}]},session.token))?.status,200);
-  const bob=await issueDevice(db,'bob','test');const result=await (await call('sync','bob',{changes:[]},bob))!.json();assert.equal(result.records[0].value,null);
+  assert.equal((await call('sync','alice',{changes:[{kind:'provider',id:'groq',base:null,value:{apiKey:'fixture-provider-secret',accountId:null}}]},session.token))?.status,403);
+  const bob=await issueDevice(db,'bob','test');const result=await (await call('sync','bob',{changes:[]},bob))!.json();assert(!result.records.some((r:any)=>r.kind==='provider'));assert(!JSON.stringify(result).includes('fixture-provider-secret')); 
   const chat={id:'c1',title:'Original',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),messages:[]};
   await call('sync','alice',{changes:[{kind:'chat',id:'c1',base:null,value:chat}]},session.token);
   const conflict=await (await call('sync','alice',{changes:[{kind:'chat',id:'c1',base:null,value:{...chat,title:'Overwrite'}}]},session.token))!.json();assert.deepEqual(conflict.conflicts,['chat:c1']);assert.equal(conflict.records.find((r:any)=>r.id==='c1').value.title,'Original');

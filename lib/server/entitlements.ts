@@ -28,6 +28,9 @@ export async function managedTables(db: Storage) {
     CREATE INDEX IF NOT EXISTS usage_owner_period ON usage_ledger(owner,period,state);
     CREATE TABLE IF NOT EXISTS payment_orders(id TEXT PRIMARY KEY,owner TEXT NOT NULL,request_key TEXT NOT NULL,amount INTEGER NOT NULL,days INTEGER NOT NULL,status TEXT NOT NULL,session TEXT,payment TEXT,created INTEGER NOT NULL,fulfilled INTEGER NOT NULL,UNIQUE(owner,request_key));
     CREATE TABLE IF NOT EXISTS payment_events(id TEXT PRIMARY KEY,order_id TEXT NOT NULL,created INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS payment_environments(id TEXT PRIMARY KEY,mode TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS managed_operations(owner TEXT NOT NULL,id TEXT NOT NULL,kind TEXT NOT NULL,calls INTEGER NOT NULL,active INTEGER NOT NULL,expires INTEGER NOT NULL,PRIMARY KEY(owner,id));
+    CREATE TABLE IF NOT EXISTS inference_requests(owner TEXT NOT NULL,id TEXT NOT NULL,operation TEXT NOT NULL,fingerprint TEXT NOT NULL,result TEXT,PRIMARY KEY(owner,id));
   `));
   await ready.get(db);
 }
@@ -75,7 +78,7 @@ export async function settleUsage(db: Storage, owner: string, id: string, succes
   await db.prepare("UPDATE usage_ledger SET state=? WHERE owner=? AND id=? AND state='reserved'").run(success ? 'consumed' : 'failed', owner, id);
 }
 export async function saveManagedPreferences(db: Storage, owner: string, profile: unknown, speed: unknown) {
-  if (!['swe','flash','premium'].includes(String(profile)) || !['fast','balanced','quality'].includes(String(speed))) throw new ManagedError(400, 'preferences', 'Choose a supported SWARM profile and speed.');
+  if (typeof profile !== 'string' || typeof speed !== 'string' || !['swe','flash','premium'].includes(profile) || !['fast','balanced','quality'].includes(speed)) throw new ManagedError(400, 'preferences', 'Choose a supported SWARM profile and speed.');
   const usage = await accountUsage(db, owner);
   if (profile === 'premium' && !usage.plan.premium) throw new ManagedError(403, 'premium_required', 'SWARM Premium requires Pro.');
   await db.prepare('UPDATE entitlements SET profile=?,speed=? WHERE owner=?').run(profile, speed, owner);

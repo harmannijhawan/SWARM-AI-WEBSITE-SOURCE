@@ -1,4 +1,5 @@
 'use client';
+import { ManagedAccount } from './managed-account';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type UIEvent } from 'react';
 import {setAuthTokenGetter,getAuthToken} from '@/lib/cloud-api/custom-fetch';
 import { SettingsWorkspace, PreferenceEffects } from './settings-workspace';
@@ -153,7 +154,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   const models = modelsResult?.models ?? [];
   const providers = providersResult?.providers ?? [];
   const validModels = models.filter((model) => providers.find((p) => p.providerId === model.providerId)?.configured);
-  const selectedModel = modelId === 'auto' && validModels.length ? { id:'auto', providerId:validModels[0].providerId, modelId:'auto', displayName:'Auto', providerName:'SWARM router' } : validModels.find(model => model.id === modelId) ?? validModels[0];
+  const selectedModel = modelId === 'auto' && validModels.length ? { id:'auto', providerId:validModels[0].providerId, modelId:'auto', displayName:'SWARM SWE', providerName:'SWARM router' } : validModels.find(model => model.id === modelId) ?? validModels[0];
   const activeMessages = (detail?.messages ?? []) as Message[];
   const [draftMessages, setDraftMessages] = useState<Message[]>([]);
   const renderedMessages = [...activeMessages, ...draftMessages];
@@ -204,12 +205,13 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
         const body = await response.json().catch(() => null);
         throw new ChatStreamError(body?.error || `Request failed (${response.status})`, response.status===401?'auth':'server',response.status===429||response.status>=500);
       }
+      window.dispatchEvent(new Event('swarm:usage'));
       if (!response.body) throw new Error('The response stream is unavailable.');
       await consumeChatStream(response.body,controller.signal,(type,data)=>{
           const event=data as StreamUpdate;
           const nested = event.data && typeof event.data === 'object' ? event.data as StreamUpdate : undefined;
           if (type === 'model') {
-            setActiveModel(`${event.displayName || event.modelId} · ${event.providerName || event.providerId}`);
+            window.dispatchEvent(new Event('swarm:usage'));setActiveModel(`${event.displayName || event.modelId} · ${event.providerName || event.providerId}`);
           } else if (type === 'reset') { setStreaming('');
           } else if (type === 'routing') { setActiveModel(event.message || 'Trying another model…');
           } else if (type === 'delta') {
@@ -243,7 +245,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
       }
       if (idForRefresh.current) invalidateConversation(idForRefresh.current);
       setDraftMessages([]);
-    } finally { clearTimeout(timeout);requestRef.current = null; setBusy(false); }
+    } finally { clearTimeout(timeout);requestRef.current = null; setBusy(false); window.dispatchEvent(new Event('swarm:usage')); }
   }
 
   async function retryFailedResponse() {
@@ -263,7 +265,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   function submit(event?: FormEvent) {
     event?.preventDefault();
     if (busy || !draft.trim()) return;
-    if (!selectedModel) { setStreamError('Connect a provider and choose an available model in Settings before sending.'); return; }
+    if (!selectedModel) { setStreamError('SWARM AI is temporarily unavailable. No provider key is needed. Please retry later.'); return; }
     const prompt = draft.trim();
     setDraft('');
     void streamRequest({ action: editingMessage ? 'edit' : 'send', prompt, ...(editingMessage ? { messageId: editingMessage } : {}), providerId: selectedModel.providerId, modelId: selectedModel.modelId, mode }, prompt);
@@ -313,7 +315,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
               : !renderedMessages.length && !busy ? <div className={`desktop-welcome ${idleBuild?'desktop-welcome-build':'desktop-welcome-chat'}`}>
                 {idleBuild?<span className="desktop-build-eyebrow">AUTONOMOUS WORKSPACE</span>:<img src="/swarm-icon.png" alt="" className="desktop-welcome-mark"/>}
                 <h1>{idleBuild?'What should SWARM build?':'What shall we work on?'}</h1><p>{idleBuild?'Describe the outcome and target platform. SWARM will plan, build, and review the code.':'Talk to SWARM. Explore an idea, work through a problem, or create your next project.'}</p>
-                {!validModels.length&&!modelsLoading&&<Link className="desktop-provider-link" href="/app/settings"><KeyRound size={15}/> Connect providers</Link>}
+                {!validModels.length&&!modelsLoading&&<Link className="desktop-provider-link" href="/app/settings"><KeyRound size={15}/> AI service status</Link>}
                 <div className="desktop-welcome-suggestions">{(idleBuild?[['Web','Build a website that '],['Windows','Build a Windows app that '],['Android','Build an Android app that '],['CLI','Create a CLI tool that ']]:[['Explore an idea','Help me develop an idea for '],['Explain some code','Explain this code: '],['Build a website','Build a website that ']]).map(([label,prompt])=><button key={label} onClick={()=>{if(!idleBuild&&label==='Build a website')setMode('swarm');prefill(prompt);}}>{label}{idleBuild&&<ArrowUpRight size={12}/>}</button>)}</div>
               </div>
               : <div className="mx-auto max-w-[760px] px-6 pb-12 pt-7">
@@ -335,13 +337,14 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
           {streamError && <div data-testid="status-stream-error" role="alert" className="mb-2 flex items-center justify-between rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive"><span>{streamError}</span>{retryRequest&&<button disabled={busy} className="ml-3 font-bold underline" onClick={()=>void retryFailedResponse()}>Retry</button>}<button aria-label="Dismiss error" onClick={() => setStreamError('')}><X size={14} /></button></div>}
           {editingMessage && <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">Editing your message<button data-testid="button-cancel-edit" onClick={() => { setEditingMessage(null); setDraft(''); }} className="font-semibold text-foreground">Cancel</button></div>}
           <form data-testid="form-chat-composer" onSubmit={submit} className="rounded-2xl border border-border bg-card p-3 shadow-[0_8px_28px_rgba(16,17,20,.06)] focus-within:border-[#aaaaaa]">
-            <textarea ref={inputRef} data-testid="input-chat-prompt" aria-label="Message SWARM" rows={2} maxLength={32000} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} placeholder={validModels.length ? (mode==='swarm'?'What do you want to build?':'Ask SWARM anything…') : 'Connect a provider to start a conversation…'} disabled={!validModels.length || busy} className="min-h-[52px] max-h-48 w-full resize-y bg-transparent px-2 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60" />
-            <div className="flex flex-wrap items-center gap-2 pt-2">
+            <textarea ref={inputRef} data-testid="input-chat-prompt" aria-label="Message SWARM" rows={2} maxLength={32000} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} placeholder={validModels.length ? (mode==='swarm'?'What do you want to build?':'Ask SWARM anything…') : 'SWARM AI is awaiting backend availability…'} disabled={!validModels.length || busy} className="min-h-[52px] max-h-48 w-full resize-y bg-transparent px-2 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60" />
+            <ManagedAccount compact/>
+      <div className="flex flex-wrap items-center gap-2 pt-2">
               <label className="sr-only" htmlFor="model-select">Provider and model</label>
               <select id="model-select" data-testid="select-chat-model" value={selectedModel?.id ?? ''} onChange={(e) => setModelId(e.target.value)} disabled={busy || !validModels.length || modelsLoading} className="max-w-[min(54vw,280px)] rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-semibold text-foreground outline-none focus:ring-2 focus:ring-[#101114]/20">
                 {!validModels.length && <option value="">{modelsLoading ? 'Loading models…' : 'No connected models'}</option>}
-                {validModels.length > 0 && <option value="auto">Auto · SWARM main router</option>}
-                {validModels.map((model) => <option key={model.id} value={model.id}>{model.displayName} · {model.providerName}</option>)}
+                {validModels.length > 0 && <option value="auto">Account model profile</option>}
+                
               </select>
               {selectedModel && <span className="hidden text-[10px] text-muted-foreground sm:inline">{modelId === 'auto' ? activeModel || 'Chooses the best available model' : selectedModel.modelId}</span>}
               {!validModels.length && <Link href="/app/settings" className="inline-flex items-center gap-1 text-[11px] font-bold text-[#101114]"><Plus size={13} /> Settings</Link>}
@@ -354,7 +357,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
       </div>
     </section>
     </BuildLayout>
-    {mode==='chat'&&<aside className="desktop-live-panel"><div className="desktop-live-heading"><small>YOUR AI TEAM</small><h2>Live work <i className={busy?'working':''}/></h2></div><section><h3><Workflow size={15}/> Agents <span>{latestBuildEvents.length?new Set(latestBuildEvents.map(e=>e.role)).size:0}</span></h3><p>{busy?'SWARM is working on your request.':'Build activity appears here when you start a project.'}</p></section><section><h3><FileCode2 size={15}/> Project files <span>{generatedFiles.length}</span></h3>{generatedFiles.length?generatedFiles.map(file=><p key={file.name}>{file.name}</p>):<p>Generated files will appear with download links in your conversation.</p>}</section><section><h3><Activity size={15}/> Activity</h3>{latestBuildEvents.length?latestBuildEvents.slice(-5).map((e,i)=><p key={i}>{e.name} · {e.status}</p>):<p>{busy?'Generating a response…':'Your latest work appears here.'}</p>}</section><section><h3>Model</h3><p>{activeModel|| (modelId==='auto'?'Auto · SWARM router':selectedModel?.displayName)||'Connect a provider to begin'}</p></section></aside>}
+    {mode==='chat'&&<aside className="desktop-live-panel"><div className="desktop-live-heading"><small>YOUR AI TEAM</small><h2>Live work <i className={busy?'working':''}/></h2></div><section><h3><Workflow size={15}/> Agents <span>{latestBuildEvents.length?new Set(latestBuildEvents.map(e=>e.role)).size:0}</span></h3><p>{busy?'SWARM is working on your request.':'Build activity appears here when you start a project.'}</p></section><section><h3><FileCode2 size={15}/> Project files <span>{generatedFiles.length}</span></h3>{generatedFiles.length?generatedFiles.map(file=><p key={file.name}>{file.name}</p>):<p>Generated files will appear with download links in your conversation.</p>}</section><section><h3><Activity size={15}/> Activity</h3>{latestBuildEvents.length?latestBuildEvents.slice(-5).map((e,i)=><p key={i}>{e.name} · {e.status}</p>):<p>{busy?'Generating a response…':'Your latest work appears here.'}</p>}</section><section><h3>Model</h3><p>{activeModel|| (modelId==='auto'?'Auto · SWARM router':selectedModel?.displayName)||'SWARM AI is awaiting backend availability'}</p></section></aside>}
   </div>;
 }
 
@@ -371,78 +374,7 @@ const providerDescriptions: Record<string,string> = {
 };
 
 function SettingsPage() { return <PrivateShell><SettingsWorkspace providers={<ProviderSettings/>}/></PrivateShell>; }
-function ProviderSettings() {
-  const cache = useQueryClient();
-  const { data: providerResponse, isLoading, isError, refetch } = useListProviders();
-  const { data: modelResponse, isLoading: modelsLoading, isError: modelsError, refetch: reloadModels } = useListModels();
-  const saveProvider = useSaveProvider({ mutation: { gcTime: 0 } });
-  const deleteProvider = useDeleteProvider();
-  const [secrets, setSecrets] = useState<Record<string,string>>({});
-  const [accounts, setAccounts] = useState<Record<string,string>>({});
-  const [reveal, setReveal] = useState<Record<string,boolean>>({});
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const providers = providerResponse?.providers ?? [];
-  const models = modelResponse?.models ?? [];
-  const groupedModels = useMemo(() => providers.map((provider) => ({ provider, models: models.filter((model) => model.providerId === provider.providerId) })), [providers, models]);
-  async function onSave(event: FormEvent, provider: ProviderSummary) {
-    event.preventDefault();
-    const apiKey = secrets[provider.providerId] ?? '';
-    const accountId = (accounts[provider.providerId] ?? provider.accountId ?? '').trim();
-    if (apiKey.length < 8) { setError(`${provider.name}: enter a valid key (at least 8 characters).`); return; }
-    if (provider.needsAccountId && !accountId) { setError('Cloudflare requires an account ID as well as an API token.'); return; }
-    setError(''); setNotice('');
-    try {
-      await saveProvider.mutateAsync({ providerId: provider.providerId, data: { apiKey, ...(accountId ? { accountId } : {}) } });
-      setSecrets((current) => ({ ...current, [provider.providerId]: '' }));
-      saveProvider.reset();
-      await Promise.all([
-        cache.invalidateQueries({ queryKey: getListProvidersQueryKey() }),
-        cache.invalidateQueries({ queryKey: getListModelsQueryKey() }),
-      ]);
-      setNotice(`${provider.name} credentials saved. Your key is masked and will not be shown again.`);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Provider key could not be saved.'); }
-  }
-  async function remove(provider: ProviderSummary) {
-    if (!window.confirm(`Remove the saved ${provider.name} key?`)) return;
-    setError(''); setNotice('');
-    try {
-      await deleteProvider.mutateAsync({ providerId: provider.providerId });
-      await Promise.all([cache.invalidateQueries({ queryKey: getListProvidersQueryKey() }), cache.invalidateQueries({ queryKey: getListModelsQueryKey() })]);
-      setNotice(`${provider.name} credentials removed.`);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Could not remove this key.'); }
-  }
-  return <div className="scroll-thin h-full overflow-y-auto">
-    <div className="mx-auto max-w-[980px] px-5 py-8 md:px-9 md:py-10">
-      <div className="mb-8 flex items-start justify-between gap-4"><div><p className="font-mono text-[10px] font-medium uppercase tracking-[.19em] text-[#101114]">Workspace / configuration</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-.055em]">Providers</h1><p className="mt-2 max-w-[600px] text-sm leading-6 text-muted-foreground">Connect your own model-provider credentials. Saved keys are encrypted server-side, masked in this workspace, and never fetched back in raw form.</p></div><div className="hidden rounded-xl border border-[#d3d3d3] bg-[#f3f3f3] p-3 text-[#101114] sm:block"><ShieldCheck size={22} /></div></div>
-      {error && <div data-testid="status-provider-error" role="alert" className="mb-4 flex items-center justify-between rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error}<button onClick={() => setError('')} aria-label="Dismiss error"><X size={15} /></button></div>}
-      {notice && <div data-testid="status-provider-success" role="status" className="mb-4 flex items-center gap-2 rounded-xl border border-[#c8c8c8] bg-[#f3f3f3] p-3 text-sm text-[#101114]"><Check size={15} />{notice}</div>}
-      <div className="mb-9 rounded-2xl border border-[#d4d4d4] bg-[#ededed] p-5 md:flex md:items-center md:gap-4"><div className="mb-3 grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-[#101114] md:mb-0"><LockKeyhole size={18} /></div><div><h2 className="text-sm font-extrabold">Credentials stay private</h2><p className="mt-1 text-xs leading-5 text-[#676767]">SWARM sends a key only to its encrypted save endpoint. After saving, you’ll see a masked hint — never the original value. Keys are not stored in your browser.</p></div></div>
-      <div className="mb-3 flex items-center justify-between"><h2 className="text-xs font-bold uppercase tracking-[.13em] text-muted-foreground">Connected providers</h2><span className="font-mono text-[10px] text-muted-foreground">{providers.filter((p) => p.configured).length} connected</span></div>
-      {isLoading ? <div role="status" aria-label="Loading providers" className="space-y-3">{[1,2,3].map((n) => <div key={n} className="h-40 animate-pulse rounded-2xl bg-muted" />)}</div>
-        : isError ? <div className="rounded-2xl border border-destructive/20 bg-card p-8 text-center"><p className="text-sm font-bold">Provider list unavailable</p><p className="mt-1 text-xs text-muted-foreground">Your credentials have not been changed.</p><button data-testid="button-retry-providers" onClick={() => void refetch()} className="mt-4 rounded-lg bg-secondary px-4 py-2 text-xs font-bold">Try again</button></div>
-          : <div className="space-y-3">{providers.map((provider) => <form key={provider.providerId} data-testid={`form-provider-${provider.providerId}`} onSubmit={(e) => void onSave(e,provider)} className="rounded-2xl border border-border bg-card p-5 md:p-6">
-            <div className="flex flex-wrap items-start gap-3"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#f1f1f1] text-[#101114]"><KeyRound size={17} /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-extrabold">{provider.name}</h3>{provider.configured ? <span className="inline-flex items-center gap-1 rounded-full bg-[#ededed] px-2 py-1 text-[10px] font-bold text-[#545454]"><Check size={11} /> Connected</span> : <span className="rounded-full bg-secondary px-2 py-1 text-[10px] font-semibold text-muted-foreground">Not connected</span>}</div><p className="mt-1 text-xs leading-5 text-muted-foreground">{providerDescriptions[provider.providerId] || `Connect your ${provider.name} credential.`}</p></div></div>
-            {provider.configured && <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-[#f5f5f5] px-3 py-2 text-xs"><span className="font-mono tracking-[.1em] text-muted-foreground">{provider.keyHint || '••••••••'}</span><span className="text-[10px] text-muted-foreground">Credential connected · masked</span>{provider.accountId && <span className="ml-auto text-[10px] text-muted-foreground">Account {provider.accountId}</span>}</div>}
-            <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
-              <div className="space-y-3">
-                {provider.needsAccountId && <label className="block"><span className="mb-1.5 block text-[11px] font-bold text-muted-foreground">Cloudflare account ID <span className="text-destructive">*</span></span><input data-testid={`input-account-${provider.providerId}`} value={accounts[provider.providerId] ?? provider.accountId ?? ''} onChange={(e) => setAccounts((current) => ({ ...current, [provider.providerId]: e.target.value }))} autoComplete="off" spellCheck={false} placeholder="Enter your Cloudflare account ID" className="h-10 w-full rounded-lg border border-input bg-background px-3 text-xs outline-none focus:border-[#8f8f8f] focus:ring-2 focus:ring-[#101114]/10" /></label>}
-                <label className="block"><span className="mb-1.5 block text-[11px] font-bold text-muted-foreground">{provider.configured ? 'Replace API key' : 'API key'} <span className="text-destructive">*</span></span><div className="relative"><input data-testid={`input-key-${provider.providerId}`} type={reveal[provider.providerId] ? 'text' : 'password'} value={secrets[provider.providerId] ?? ''} onChange={(e) => setSecrets((current) => ({ ...current, [provider.providerId]: e.target.value }))} autoComplete="new-password" spellCheck={false} placeholder={provider.configured ? 'Enter a new key to rotate credentials' : `Paste your ${provider.name} API key`} className="h-10 w-full rounded-lg border border-input bg-background px-3 pr-16 font-mono text-xs outline-none focus:border-[#8f8f8f] focus:ring-2 focus:ring-[#101114]/10" /><button data-testid={`button-reveal-${provider.providerId}`} type="button" onClick={() => setReveal((current) => ({ ...current, [provider.providerId]: !current[provider.providerId] }))} className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-[10px] font-bold text-muted-foreground hover:bg-secondary">{reveal[provider.providerId] ? 'Hide' : 'Show'}</button></div></label>
-              </div>
-              <div className="flex items-end gap-2 md:flex-col md:items-stretch md:justify-end"><button data-testid={`button-save-${provider.providerId}`} type="submit" disabled={saveProvider.isPending || !secrets[provider.providerId]?.trim()} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#101114] px-4 text-xs font-bold text-white hover:bg-[#101114] disabled:opacity-40">{saveProvider.isPending && saveProvider.variables?.providerId === provider.providerId ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <Check size={14} />}Save key</button>{provider.configured && <button data-testid={`button-remove-${provider.providerId}`} type="button" disabled={deleteProvider.isPending} onClick={() => void remove(provider)} className="h-10 rounded-lg border border-border px-3 text-xs font-semibold text-muted-foreground hover:border-destructive/30 hover:text-destructive">Remove</button>}</div>
-            </div>
-            {provider.needsAccountId && <p className="mt-2 text-[10px] leading-5 text-muted-foreground">Find this ID in your Cloudflare dashboard under the account overview. It is sent with the key when you save.</p>}
-          </form>)}</div>}
-      <section className="mt-12">
-        <div className="mb-3 flex items-end justify-between gap-3"><div><h2 className="text-lg font-extrabold tracking-tight">Available models</h2><p className="mt-1 text-xs text-muted-foreground">Live API inventory for your connected providers.</p></div><span className="font-mono text-[10px] text-muted-foreground">{models.length} models</span></div>
-        {modelsLoading ? <div role="status" aria-label="Loading models" className="grid gap-2 sm:grid-cols-2">{[1,2,3,4].map((n) => <div key={n} className="h-16 animate-pulse rounded-xl bg-muted" />)}</div>
-          : modelsError ? <div className="rounded-xl border border-border bg-card p-5 text-xs text-muted-foreground">Model inventory couldn’t load.<button onClick={() => void reloadModels()} className="ml-2 font-bold text-foreground underline">Retry</button></div>
-            : !models.length ? <div className="rounded-2xl border border-dashed border-border bg-card px-5 py-8 text-center"><Zap size={20} className="mx-auto text-[#101114]" /><p className="mt-3 text-sm font-bold">No models available yet</p><p className="mx-auto mt-1 max-w-sm text-xs leading-5 text-muted-foreground">Save a provider key above. SWARM will show the models returned for your account here.</p></div>
-              : <div className="space-y-3">{groupedModels.filter((group) => group.models.length).map(({ provider, models: list }) => <div key={provider.providerId} className="overflow-hidden rounded-xl border border-border bg-card"><div className="flex items-center justify-between border-b border-border px-4 py-3"><span className="text-xs font-bold">{provider.name}</span><span className="font-mono text-[10px] text-muted-foreground">{list.length} models</span></div><div className="divide-y divide-border sm:grid sm:grid-cols-2 sm:divide-y-0">{list.map((model) => <div key={model.id} data-testid={`model-${model.id}`} className="flex min-w-0 items-center gap-3 border-b border-border px-4 py-3 last:border-0 sm:border-r sm:odd:border-r sm:even:border-r-0"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#6b6b6b]" /><span className="min-w-0 flex-1 truncate text-xs font-semibold">{model.displayName}</span><span className="max-w-[42%] truncate font-mono text-[9px] text-muted-foreground">{model.modelId}</span></div>)}</div></div>)}</div>}
-      </section>
-    </div>
-  </div>;
-}
+function ProviderSettings() { return <ManagedAccount/>; }
 
 function Router() {
   const [location] = useLocation();

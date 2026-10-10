@@ -5,6 +5,7 @@ export type ContentPart = { type: 'text'; text: string } | { type: 'image'; data
 export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string | ContentPart[] }
 
 export interface ChatRequest {
+  reasoningEffort?: 'low' | 'medium' | 'high';
   messages: ChatMessage[];
   maxTokens: number;
   temperature: number;

@@ -46,7 +46,8 @@ export function openAICompatible(o: Options): ProviderAdapter {
       return out;
     },
     chat(cfg, modelId, req) {
-      return openAIChat(`${cfg.baseUrl}/chat/completions`, { Authorization: `Bearer ${cfg.apiKey}` }, modelId, req, o.extraBody ?? {}, o.id);
+      const reasoning = o.id === 'groq' && /^openai\/gpt-oss-(20b|120b)$/.test(modelId) && req.reasoningEffort ? { reasoning_effort: req.reasoningEffort } : {};
+      return openAIChat(`${cfg.baseUrl}/chat/completions`, { Authorization: `Bearer ${cfg.apiKey}` }, modelId, req, { ...o.extraBody, ...reasoning }, o.id);
     },
   };
 }

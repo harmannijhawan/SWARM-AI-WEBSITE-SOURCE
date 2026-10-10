@@ -5,50 +5,90 @@ import { initializeAccount, managedTables, managedTransaction, ManagedError, pla
 type Order = { id: string; owner: string; request_key: string; amount: number; days: number; status: string; session: string | null; payment: string | null; created: number; fulfilled: number };
 export function checkoutAvailable() {
   const pro = planCatalog().pro;
-  return !!(process.env.CASHFREE_SANDBOX_CLIENT_ID && process.env.CASHFREE_SANDBOX_CLIENT_SECRET && pro.price && pro.builds && pro.chats && process.env.SWARM_PUBLIC_URL);
+  try { const credentials=cashfreeCredentials();return !!(credentials.id && credentials.secret && pro.price && pro.builds && pro.chats && process.env.SWARM_PUBLIC_URL); } catch { return false; }
 }
-function headers() {
-  if (!process.env.CASHFREE_SANDBOX_CLIENT_ID || !process.env.CASHFREE_SANDBOX_CLIENT_SECRET) throw new ManagedError(503, 'billing_unavailable', 'Sandbox checkout is not configured yet.');
-  return { 'Content-Type': 'application/json', 'x-client-id': process.env.CASHFREE_SANDBOX_CLIENT_ID, 'x-client-secret': process.env.CASHFREE_SANDBOX_CLIENT_SECRET, 'x-api-version': '2026-01-01' };
+export const CASHFREE_SANDBOX_URL = 'https://sandbox.cashfree.com/pg';
+export const CASHFREE_API_VERSION = '2026-01-01';
+export function cashfreeEnvironment() {
+  const mode=process.env.CASHFREE_ENV || 'sandbox';
+  if(mode!=='sandbox'&&mode!=='production')throw new ManagedError(503,'billing_configuration','CASHFREE_ENV must be sandbox or production.');
+  return {mode,url:mode==='production'?'https://api.cashfree.com/pg':CASHFREE_SANDBOX_URL} as const;
+}
+function cashfreeCredentials() {
+  const {mode}=cashfreeEnvironment();
+  return mode==='production'
+    ? {id:process.env.CASHFREE_CLIENT_ID,secret:process.env.CASHFREE_CLIENT_SECRET}
+    : {id:process.env.CASHFREE_SANDBOX_CLIENT_ID,secret:process.env.CASHFREE_SANDBOX_CLIENT_SECRET};
+}
+export function cashfreeHeaders() {
+  const {id,secret}=cashfreeCredentials();
+  if (!id || !secret) throw new ManagedError(503, 'billing_unavailable', 'Cashfree credentials for the selected environment are not configured.');
+  return { 'Content-Type': 'application/json', 'x-client-id': id, 'x-client-secret': secret, 'x-api-version': CASHFREE_API_VERSION };
+}
+export type CashfreeDiagnostic = { source: 'cashfree'; status: number; hostname: string; apiVersion: string; requestId: string; correlationId: string | null; code: string | null; type: string | null; message: string };
+export class CashfreeError extends ManagedError {
+  constructor(public diagnostic: CashfreeDiagnostic) {
+    super(502, diagnostic.status === 401 ? 'billing_authentication' : 'billing_provider', diagnostic.status === 401 ? 'Cashfree rejected backend authentication. Contact the SWARM operator with request ID ' + diagnostic.requestId + '.' : 'Cashfree could not complete this request. Retry using the same order. Request ID: ' + diagnostic.requestId);
+  }
+}
+export function cashfreeDiagnostic(response: Response, data: any, requestId: string): CashfreeDiagnostic {
+  // Do not log arbitrary provider text: it may echo credentials or customer fields.
+  const correlation = response.headers.get('x-request-id');
+  const credentials=cashfreeCredentials();
+  const safeCorrelation = correlation && /^[a-f0-9-]{32,36}$/i.test(correlation) && ![credentials.id,credentials.secret].includes(correlation) ? correlation : null;
+  const codes=['request_failed','something_not_found','order_already_exists','request_invalid','internal_error'];
+  const types=['authentication_error','invalid_request_error','idempotency_error','rate_limit_error','api_error'];
+  return {source:'cashfree',status:response.status,hostname:new URL(cashfreeEnvironment().url).hostname,apiVersion:CASHFREE_API_VERSION,requestId,correlationId:safeCorrelation,code:codes.includes(data?.code)?data.code:null,type:types.includes(data?.type)?data.type:null,message:data?.message === 'authentication Failed' ? 'authentication Failed' : 'Cashfree rejected the request (response details withheld).'};
 }
 async function cashfree(path: string, body?: unknown, key?: string) {
-  // Intentionally no production URL or mode override. These builds cannot charge live accounts.
-  let response: Response;
-  try { response = await fetch('https://sandbox.cashfree.com/pg' + path, { method: body ? 'POST' : 'GET', headers: { ...headers(), ...(key ? { 'x-idempotency-key': key } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000), redirect: 'error' }); }
-  catch (error) { if (error instanceof ManagedError) throw error; throw new ManagedError(503, 'billing_network', 'Cashfree sandbox is temporarily unavailable. Retry using the same order.'); }
-  if (!response.ok) throw new ManagedError(502, 'billing_provider', 'Cashfree sandbox could not complete this request. Retry using the same order.');
+  // Only fixed official endpoints are permitted; mode is selected by the server.
+  let response: Response;const requestId=randomUUID();
+  try { response = await fetch(cashfreeEnvironment().url + path, { method: body ? 'POST' : 'GET', headers: { ...cashfreeHeaders(), 'x-request-id':requestId, ...(key ? { 'x-idempotency-key': key } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000), redirect: 'error' }); }
+  catch (error) { if (error instanceof ManagedError) throw error; throw new ManagedError(503, 'billing_network', 'Cashfree is temporarily unavailable. Retry using the same order.'); }
+  if (!response.ok) {
+    const diagnostic=cashfreeDiagnostic(response,await response.json().catch(()=>null),requestId);
+    console.warn('swarm.cashfree.failure',diagnostic);throw new CashfreeError(diagnostic);
+  }
   return response.json();
 }
 export async function createCheckout(db: Storage, owner: string, key: unknown, phone: unknown) {
   if (typeof key !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(key) || typeof phone !== 'string' || !/^[6-9][0-9]{9}$/.test(phone)) throw new ManagedError(400, 'checkout_input', 'Enter a valid Indian mobile number and request ID.');
-  if (!checkoutAvailable()) throw new ManagedError(503, 'billing_unavailable', 'Sandbox checkout is awaiting merchant credentials and fair-use configuration.');
+  if (!checkoutAvailable()) throw new ManagedError(503, 'billing_unavailable', 'Checkout is awaiting merchant credentials and fair-use configuration.');
+  const {mode}=cashfreeEnvironment();
   const origin = new URL(process.env.SWARM_PUBLIC_URL!);
-  if (origin.protocol !== 'https:' && !['localhost','127.0.0.1'].includes(origin.hostname)) throw new ManagedError(503, 'billing_configuration', 'Checkout return URL is unavailable.');
+  if (origin.username||origin.password||origin.search||origin.hash||origin.pathname!=='/'||(origin.protocol!=='https:'&&!(mode==='sandbox'&&origin.protocol==='http:'&&['localhost','127.0.0.1'].includes(origin.hostname)))) throw new ManagedError(503, 'billing_configuration', 'Checkout requires a valid public HTTPS origin (local HTTP is allowed only in sandbox).');
   await initializeAccount(db, owner);
   const order = await managedTransaction(db, owner, async () => {
     const existing = await db.prepare('SELECT * FROM payment_orders WHERE owner=? AND request_key=?').get(owner, key) as Order | undefined;
-    if (existing) return existing;
+    if (existing) { await assertOrderEnvironment(db,existing.id);return existing; }
     const recent = await db.prepare('SELECT COUNT(*) AS n FROM payment_orders WHERE owner=? AND created>?').get(owner, Date.now() - 3600000);
     if (Number(recent?.n) >= 5) throw new ManagedError(429, 'checkout_limit', 'Too many checkout attempts. Reuse an existing pending order.');
     const pro = planCatalog().pro;
     const next: Order = { id: 'swarm_' + randomUUID().replaceAll('-',''), owner, request_key: key, amount: pro.price!, days: pro.accessDays, status: 'pending', session: null, payment: null, created: Date.now(), fulfilled: 0 };
     await db.prepare('INSERT INTO payment_orders VALUES(?,?,?,?,?,?,?,?,?,?)').run(next.id, owner, key, next.amount, next.days, next.status, null, null, next.created, 0);
+    await db.prepare('INSERT INTO payment_environments VALUES(?,?)').run(next.id,mode);
     return next;
   });
   if (!order.session && order.status === 'pending') {
     const keyHash = createHash('sha256').update(order.id).digest('hex');
     const idempotencyKey = `${keyHash.slice(0,8)}-${keyHash.slice(8,12)}-4${keyHash.slice(13,16)}-a${keyHash.slice(17,20)}-${keyHash.slice(20,32)}`;
     const result = await cashfree('/orders', { order_id: order.id, order_amount: order.amount / 100, order_currency: 'INR', customer_details: { customer_id: owner, customer_phone: phone }, order_meta: { return_url: origin.origin + '/app/settings?order_id=' + order.id } }, idempotencyKey);
-    if (result.order_id !== order.id || typeof result.payment_session_id !== 'string') throw new ManagedError(502, 'billing_response', 'Sandbox checkout returned an invalid order.');
+    if (result.order_id !== order.id || typeof result.payment_session_id !== 'string') throw new ManagedError(502, 'billing_response', 'Cashfree checkout returned an invalid order.');
     order.session = result.payment_session_id;
     await db.prepare('UPDATE payment_orders SET session=? WHERE id=?').run(order.session, order.id);
   }
-  return { orderId: order.id, paymentSessionId: order.session, status: order.status, mode: 'sandbox' };
+  return { orderId: order.id, paymentSessionId: order.session, status: order.status, mode };
+}
+async function assertOrderEnvironment(db:Storage,id:string) {
+  const row=await db.prepare('SELECT mode FROM payment_environments WHERE id=?').get(id);
+  // All orders created before explicit environment support were sandbox orders.
+  if((row?.mode||'sandbox')!==cashfreeEnvironment().mode)throw new ManagedError(409,'billing_environment','This order belongs to a different payment environment.');
 }
 export async function verifyOrder(db: Storage, owner: string, id: string) {
   await managedTables(db);
   const order = await db.prepare('SELECT * FROM payment_orders WHERE id=? AND owner=?').get(id, owner) as Order | undefined;
   if (!order) throw new ManagedError(404, 'order_missing', 'Payment order not found.');
+  await assertOrderEnvironment(db,id);
   const remote = await cashfree('/orders/' + encodeURIComponent(id));
   if (remote.order_id !== id || remote.customer_details?.customer_id !== owner || remote.order_currency !== 'INR' || Math.round(Number(remote.order_amount) * 100) !== order.amount) throw new ManagedError(502, 'payment_mismatch', 'Payment verification did not match this order.');
   const payments = await cashfree('/orders/' + encodeURIComponent(id) + '/payments');
@@ -68,7 +108,7 @@ export async function verifyOrder(db: Storage, owner: string, id: string) {
   return db.prepare('SELECT id,amount,days,status,payment,created,fulfilled FROM payment_orders WHERE id=? AND owner=?').get(id, owner);
 }
 export function validSignature(raw: string, timestamp: string | null, signature: string | null) {
-  const secret = process.env.CASHFREE_SANDBOX_CLIENT_SECRET;
+  const secret = cashfreeCredentials().secret;
   if (!secret || !timestamp || !signature) return false;
   const expected = createHmac('sha256', secret).update(timestamp + raw).digest('base64');
   const actual = Buffer.from(signature), correct = Buffer.from(expected);
@@ -82,10 +122,11 @@ export async function cashfreeWebhook(db: Storage, request: Request) {
   const id = event.data?.order?.order_id;
   if (typeof id !== 'string') throw new ManagedError(400, 'webhook_order', 'Missing payment order.');
   const eventId = createHash('sha256').update(raw).digest('hex');
-  if (await db.prepare('SELECT id FROM payment_events WHERE id=?').get(eventId)) return { received: true };
-  const order = await db.prepare('SELECT owner FROM payment_orders WHERE id=?').get(id);
+  const order = await db.prepare('SELECT owner,status FROM payment_orders WHERE id=?').get(id);
   if (!order) throw new ManagedError(404, 'webhook_order', 'Unknown payment order.');
-  await verifyOrder(db, String(order.owner), id); // A signed notification alone never grants Pro.
+  if (order.status === 'paid' && await db.prepare('SELECT id FROM payment_events WHERE id=?').get(eventId)) return { received: true };
+  const result = await verifyOrder(db, String(order.owner), id); // A signed notification alone never grants Pro.
+  if (event.type === 'PAYMENT_SUCCESS_WEBHOOK' && result?.status !== 'paid') throw new ManagedError(503,'payment_pending','Authoritative payment confirmation is pending. Retry this notification.');
   await db.prepare('INSERT OR IGNORE INTO payment_events VALUES(?,?,?)').run(eventId, id, Date.now());
   return { received: true };
 }

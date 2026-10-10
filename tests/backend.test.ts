@@ -13,16 +13,18 @@ import { ProviderError } from '../lib/server/desktop-providers/types';
 process.env.SWARM_DATA_DIR=mkdtempSync(join(tmpdir(),'swarm-web-test-'));
 delete process.env.CLERK_SECRET_KEY;
 for(const names of Object.values(envNames))for(const name of names)delete process.env[name];
+process.env.SWARM_FREE_CHATS='100'; // Reliability suite uses a high test-only allowance; quota tests use launch defaults.
+const configure=(provider:string,key:string,models:string[])=>{process.env[envNames[provider][0]]=key;process.env.SWARM_STANDARD_MODELS=models.map(m=>provider+':'+m).join(',');(globalThis as any).swarmWeb?.models.clear();};
+const disable=(provider:string)=>{delete process.env[envNames[provider][0]];(globalThis as any).swarmWeb?.models.clear();};
 const request=(path:string,method='GET',body?:unknown,origin='http://localhost:3000')=>handleApi(new Request(`http://localhost:3000/api/${path}`,{method,headers:{Origin:origin,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}),path.split('?')[0].split('/'));
 
-test('persistent conversations, masked keys, owner boundary, regeneration and SWARM events',async()=>{
+test('persistent conversations, managed keys, owner boundary, regeneration and SWARM events',async()=>{
   assert.equal((await request('health')).status,200);
   assert.equal((await request('health','GET',undefined,'https://untrusted.example')).status,403);
   assert.equal((await handleApi(new Request('https://public.example/api/health'),['health'])).status,403);
-  assert.equal((await request('providers/openai','PUT',{apiKey:'short'})).status,400);
-  const saved=await request('providers/openai','PUT',{apiKey:'test-key-123456'});
-  const savedText=await saved.text();assert.equal(saved.status,200);assert(!savedText.includes('test-key-123456'));assert(savedText.includes('3456'));
-  const disk=readFileSync(join(process.env.SWARM_DATA_DIR!,'chat.sqlite-wal'));assert(!disk.includes(Buffer.from('test-key-123456')));
+  assert.equal((await request('providers/openai','PUT',{apiKey:'test-key-123456'})).status,403);
+  configure('openai','test-key-123456',['test-model']);
+  const safe=await (await request('providers')).text();assert(!safe.includes('123456'));assert(!safe.includes('3456'));
   const adapter=adapters.find(a=>a.id==='openai')!;
   adapter.discover=async()=>[{modelId:'test-model',displayName:'Test model',capabilities:['chat'],contextLength:8192,maxOutput:4096,freeStatus:'unknown'}];
   let calls=0;
@@ -39,7 +41,7 @@ test('persistent conversations, masked keys, owner boundary, regeneration and SW
   assert.equal((await request(`conversations/${created.id}`,'PATCH',{title:'Renamed'})).status,200);
   assert.equal((await request(`conversations/${created.id}`,'DELETE')).status,204);
   assert.equal((await request(`conversations/${created.id}`)).status,404);
-  assert.equal((await request('providers/openai','DELETE')).status,204);
+  assert.equal((await request('providers/openai','DELETE')).status,403);disable('openai');
   assert.equal((await (await request('providers')).json()).providers.find((p:{providerId:string})=>p.providerId==='openai').configured,false);
 });
 
@@ -61,7 +63,7 @@ test('code download extraction preserves content and prevents traversal or dupli
 
 test('cancelling generation aborts the provider and releases the conversation lock',async()=>{
   const adapter=adapters.find(a=>a.id==='openai')!;
-  await request('providers/openai','PUT',{apiKey:'test-key-cancel'});
+  configure('openai','test-key-cancel',['test-model']);
   adapter.discover=async()=>[{modelId:'test-model',displayName:'Test model',capabilities:['chat'],contextLength:8192,maxOutput:4096,freeStatus:'unknown'}];
   let aborted=false;
   adapter.chat=async(_config,_model,input)=>{
@@ -82,17 +84,17 @@ test('Auto falls back after a provider failure and stores the actual model',asyn
  const adapter=adapters.find(a=>a.id==='groq')!;
  adapter.discover=async()=>['llama-3.1-8b-instant','llama-3.2-3b'].map(modelId=>({modelId,displayName:modelId,capabilities:['chat'],contextLength:8192,maxOutput:4096,freeStatus:'free'}));
  let calls=0;adapter.chat=async(_config,_model,input)=>{calls++;if(calls===1)throw new Error('Fixture model unavailable');input.onToken?.('Fallback works.');return {text:'Fallback works.',promptTokens:1,completionTokens:2,finishReason:'stop',latencyMs:1,ttftMs:1,usageEstimated:false};};
- await request('providers/groq','PUT',{apiKey:'test-groq-key'});
+ disable('openai');configure('groq','test-groq-key',['llama-3.1-8b-instant','llama-3.2-3b']);
  const c=await (await request('conversations','POST',{})).json();
  const stream=await request(`conversations/${c.id}/stream`,'POST',{action:'send',prompt:'Hello',providerId:'groq',modelId:'auto',mode:'chat'});
  const events=await stream.text();assert.equal(calls,2);assert(events.includes('event: routing'));assert(events.includes('event: reset'));assert(events.includes('event: done'));
  const stored=await (await request(`conversations/${c.id}`)).json();assert.equal(stored.messages.at(-1).content,'Fallback works.');assert(stored.messages.at(-1).modelName.includes('Groq'));
- await request('providers/groq','DELETE');
+ disable('groq');
 });
 
 test('web project deadline emits a typed error, preserves input, sanitizes logs and releases its lock',async t=>{
   const adapter=adapters.find(a=>a.id==='openai')!;
-  await request('providers/openai','PUT',{apiKey:'test-deadline-key'});
+  configure('openai','test-deadline-key',['deadline-model']);
   adapter.discover=async()=>[{modelId:'deadline-model',displayName:'Deadline fixture',capabilities:['chat'],contextLength:8192,maxOutput:4096,freeStatus:'unknown'}];
   let began!:()=>void;const started=new Promise<void>(resolve=>began=resolve);let aborted=false;
   adapter.chat=async(_config,_model,input)=>{
@@ -108,19 +110,19 @@ test('web project deadline emits a typed error, preserves input, sanitizes logs 
     const logs=JSON.stringify(warnings);assert(!logs.includes('PRIVATE-FIXTURE-CONTENT'));assert(!logs.includes('test-deadline-key'));assert(logs.includes('requestId'));
     const stored=await (await request(`conversations/${c.id}`)).json();assert.equal(stored.messages.length,1);assert.equal(stored.messages[0].role,'user');
     assert.equal((await request(`conversations/${c.id}`,'DELETE')).status,204);
-  }finally {console.warn=original;t.mock.timers.reset();await request('providers/openai','DELETE');}
+  }finally {console.warn=original;t.mock.timers.reset();disable('openai');}
 });
 
 test('Auto rate-limit exhaustion is bounded and permanent authentication skips the provider',async()=>{
   const adapter=adapters.find(a=>a.id==='groq')!;
   adapter.discover=async()=>Array.from({length:10},(_,i)=>({modelId:`reliability-${i}`,displayName:`Fixture ${i}`,capabilities:['chat' as const],contextLength:8192,maxOutput:4096,freeStatus:'free' as const}));
   for(const category of ['rate_limit','auth'] as const){
-    await request('providers/groq','PUT',{apiKey:'test-exhaustion-key'});
+    configure('groq','test-exhaustion-key',Array.from({length:10},(_,i)=>'reliability-'+i));
     let calls=0;adapter.chat=async()=>{calls++;throw new ProviderError(category,'Private upstream text',category==='auth'?401:429,1000);};
     const c=await (await request('conversations','POST',{})).json();
     const response=await request(`conversations/${c.id}/stream`,'POST',{action:'send',prompt:'Hello',providerId:'groq',modelId:'auto',mode:'chat'});
-    const events=await response.text();assert(events.includes('event: error'));assert.equal(calls,category==='auth'?1:4);assert(!events.includes('Private upstream text'));
+    const events=await response.text();assert(events.includes('event: error'));assert.equal(calls,1);assert(!events.includes('Private upstream text'));
     assert.equal((await request(`conversations/${c.id}`,'DELETE')).status,204);
-    await request('providers/groq','DELETE');
+    disable('groq');
   }
 });

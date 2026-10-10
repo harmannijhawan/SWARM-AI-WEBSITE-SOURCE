@@ -18,7 +18,7 @@ function CTA({ children, href='/app', light=false }: { children: React.ReactNode
 function Nav() {
   const [open,setOpen] = useState(false); const [scrolled,setScrolled] = useState(false)
   useEffect(() => { const onScroll=()=>setScrolled(window.scrollY>20); window.addEventListener('scroll',onScroll,{passive:true}); return()=>window.removeEventListener('scroll',onScroll) },[])
-  const links=[['Agents','/agents'],['Platform','/platform'],['Cloud','/cloud'],['How it works','/how-it-works'],['Download','/#download']]
+  const links=[['Agents','/agents'],['Platform','/platform'],['Cloud','/cloud'],['How it works','/how-it-works'],['Download','/#download'],['Pricing','/pricing']]
   return <header className={`nav ${scrolled?'scrolled':''}`}><Link href="/" className="brand"><Mark word /><span>SWARM AI</span></Link><nav className={open?'open':''}>{links.map(([label,href])=><Link key={href} href={href} onClick={()=>setOpen(false)}>{label}</Link>)}<Link href="/login" onClick={()=>setOpen(false)}>Log in</Link><CTA>Launch SWARM</CTA></nav><div className="nav-right"><Link href="/login">Log in</Link><CTA>Launch SWARM</CTA><button className="menu" onClick={()=>setOpen(!open)} aria-label={open?"Close navigation":"Open navigation"} aria-expanded={open}>{open?<X/>:<Menu/>}</button></div></header>
 }
 

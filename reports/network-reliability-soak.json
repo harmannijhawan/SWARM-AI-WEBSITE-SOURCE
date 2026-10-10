@@ -1,15 +1,15 @@
 {
   "startedAt": "2026-10-10T07:24:10.287Z",
-  "durationMs": 706171,
-  "requests": 2415,
-  "providerCalls": 4141,
-  "projectRequests": 1208,
-  "injectedFailures": 1035,
+  "durationMs": 1800519,
+  "requests": 6139,
+  "providerCalls": 10525,
+  "projectRequests": 3070,
+  "injectedFailures": 2631,
   "unexpectedFailures": 0,
-  "recoveries": 1035,
+  "recoveries": 2631,
   "duplicateMessages": 0,
   "lockFailures": 0,
-  "openProviderResponses": 1,
+  "openProviderResponses": 0,
   "memory": [
     {
       "elapsedMs": 35,
@@ -130,7 +130,187 @@
       "elapsedMs": 706171,
       "rss": 89382912,
       "heapUsed": 18437456
+    },
+    {
+      "elapsedMs": 736805,
+      "rss": 89751552,
+      "heapUsed": 16350264
+    },
+    {
+      "elapsedMs": 767545,
+      "rss": 89890816,
+      "heapUsed": 22387024
+    },
+    {
+      "elapsedMs": 798391,
+      "rss": 90021888,
+      "heapUsed": 22161296
+    },
+    {
+      "elapsedMs": 829163,
+      "rss": 89858048,
+      "heapUsed": 20375600
+    },
+    {
+      "elapsedMs": 859887,
+      "rss": 90431488,
+      "heapUsed": 18163656
+    },
+    {
+      "elapsedMs": 890618,
+      "rss": 89894912,
+      "heapUsed": 23601624
+    },
+    {
+      "elapsedMs": 921373,
+      "rss": 89968640,
+      "heapUsed": 22308576
+    },
+    {
+      "elapsedMs": 952165,
+      "rss": 89526272,
+      "heapUsed": 20681912
+    },
+    {
+      "elapsedMs": 982900,
+      "rss": 89841664,
+      "heapUsed": 18949784
+    },
+    {
+      "elapsedMs": 1013792,
+      "rss": 89796608,
+      "heapUsed": 18087328
+    },
+    {
+      "elapsedMs": 1044886,
+      "rss": 90189824,
+      "heapUsed": 23120592
+    },
+    {
+      "elapsedMs": 1075945,
+      "rss": 90443776,
+      "heapUsed": 21186648
+    },
+    {
+      "elapsedMs": 1106764,
+      "rss": 89411584,
+      "heapUsed": 19589248
+    },
+    {
+      "elapsedMs": 1137493,
+      "rss": 92205056,
+      "heapUsed": 18939120
+    },
+    {
+      "elapsedMs": 1168166,
+      "rss": 89903104,
+      "heapUsed": 23465280
+    },
+    {
+      "elapsedMs": 1198895,
+      "rss": 89976832,
+      "heapUsed": 21859768
+    },
+    {
+      "elapsedMs": 1229675,
+      "rss": 92520448,
+      "heapUsed": 23721880
+    },
+    {
+      "elapsedMs": 1260325,
+      "rss": 96907264,
+      "heapUsed": 18481392
+    },
+    {
+      "elapsedMs": 1290881,
+      "rss": 98893824,
+      "heapUsed": 17220496
+    },
+    {
+      "elapsedMs": 1321894,
+      "rss": 116199424,
+      "heapUsed": 22086240
+    },
+    {
+      "elapsedMs": 1352715,
+      "rss": 116707328,
+      "heapUsed": 22929024
+    },
+    {
+      "elapsedMs": 1383671,
+      "rss": 116207616,
+      "heapUsed": 19704744
+    },
+    {
+      "elapsedMs": 1414613,
+      "rss": 119279616,
+      "heapUsed": 29483664
+    },
+    {
+      "elapsedMs": 1445559,
+      "rss": 123248640,
+      "heapUsed": 31886424
+    },
+    {
+      "elapsedMs": 1476326,
+      "rss": 135897088,
+      "heapUsed": 31726016
+    },
+    {
+      "elapsedMs": 1507167,
+      "rss": 134860800,
+      "heapUsed": 22229312
+    },
+    {
+      "elapsedMs": 1538055,
+      "rss": 137330688,
+      "heapUsed": 40053152
+    },
+    {
+      "elapsedMs": 1568813,
+      "rss": 138596352,
+      "heapUsed": 32931656
+    },
+    {
+      "elapsedMs": 1599574,
+      "rss": 161300480,
+      "heapUsed": 19449872
+    },
+    {
+      "elapsedMs": 1630324,
+      "rss": 160870400,
+      "heapUsed": 26579768
+    },
+    {
+      "elapsedMs": 1661061,
+      "rss": 161615872,
+      "heapUsed": 34623352
+    },
+    {
+      "elapsedMs": 1691804,
+      "rss": 162205696,
+      "heapUsed": 29567904
+    },
+    {
+      "elapsedMs": 1722614,
+      "rss": 166326272,
+      "heapUsed": 47386352
+    },
+    {
+      "elapsedMs": 1753383,
+      "rss": 170020864,
+      "heapUsed": 29514920
+    },
+    {
+      "elapsedMs": 1784104,
+      "rss": 170209280,
+      "heapUsed": 30262928
+    },
+    {
+      "elapsedMs": 1800519,
+      "rss": 169226240,
+      "heapUsed": 19360728
     }
   ],
-  "complete": false
+  "complete": true
 }
