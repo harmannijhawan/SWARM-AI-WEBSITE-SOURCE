@@ -2,6 +2,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {Pool,type PoolClient} from 'pg';
 import {AsyncLocalStorage} from 'node:async_hooks';
 const tables:Record<string,{columns:string[];key:string[]}>= {
+  unlimited_accounts:{columns:['owner'],key:['owner']},
   managed_operations:{columns:['owner','id','kind','calls','active','expires'],key:['owner','id']},
   inference_requests:{columns:['owner','id','operation','fingerprint','result'],key:['owner','id']},
   entitlements:{columns:['owner','created','pro_until','profile','speed'],key:['owner']},
@@ -27,6 +28,15 @@ export function postgresSql(sql:string) {
   let index=0;return sql.replace(/\?/g,()=>'$'+(++index));
 }
 type Session={client?:PoolClient;release?:()=>void};
+// pg preserves BIGINT as strings by default. Match SQLite's numeric contract
+// only where conversion is lossless; text IDs and unsafe integers stay intact.
+export function postgresRows(rows:Record<string,any>[],fields:{name:string;dataTypeID:number}[]) {
+  for(const field of fields.filter(field=>field.dataTypeID===20))for(const row of rows){
+    const value=row[field.name];
+    if(typeof value==='string'&&/^-?\d+$/.test(value)&&Number.isSafeInteger(Number(value)))row[field.name]=Number(value);
+  }
+  return rows;
+}
 const context=new AsyncLocalStorage<Session>();
 export async function storageContext<T>(fn:()=>Promise<T>):Promise<T>{return context.run({},async()=>{try{return await fn();}finally{const s=context.getStore();if(s?.client){await s.client.query('ROLLBACK').catch(()=>{});s.client.release();}if(s?.release)s.release();}});}
 export class Storage {
@@ -36,7 +46,7 @@ export class Storage {
   async close(){this.local?.close();await this.pool?.end();}
   private async lock(){let release!:()=>void;const next=new Promise<void>(resolve=>release=resolve);const previous=this.queue;this.queue=previous.then(()=>next);await previous;return release;}
   private async execute(sql:string,params:any[]) {
-    if(this.pool){const client=context.getStore()?.client||this.pool;const result=await client.query(postgresSql(sql),params);return {rows:Array.isArray(result)?[]:result.rows,changes:Array.isArray(result)?0:result.rowCount||0};}
+    if(this.pool){const client=context.getStore()?.client||this.pool;const result=await client.query(postgresSql(sql),params);return {rows:Array.isArray(result)?[]:postgresRows(result.rows,result.fields),changes:Array.isArray(result)?0:result.rowCount||0};}
     if(params.length||/^\s*(SELECT|INSERT|UPDATE|DELETE)/i.test(sql)&&!sql.includes(';')) {const statement=this.local!.prepare(sql);if(/^\s*SELECT/i.test(sql)||/RETURNING/i.test(sql))return {rows:statement.all(...params),changes:0};const result=statement.run(...params);return {rows:[],changes:Number(result.changes)};}
     this.local!.exec(sql);return {rows:[],changes:0};
   }

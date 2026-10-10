@@ -72,7 +72,7 @@ export async function createCheckout(db: Storage, owner: string, key: unknown, p
   if (!order.session && order.status === 'pending') {
     const keyHash = createHash('sha256').update(order.id).digest('hex');
     const idempotencyKey = `${keyHash.slice(0,8)}-${keyHash.slice(8,12)}-4${keyHash.slice(13,16)}-a${keyHash.slice(17,20)}-${keyHash.slice(20,32)}`;
-    const result = await cashfree('/orders', { order_id: order.id, order_amount: order.amount / 100, order_currency: 'INR', customer_details: { customer_id: owner, customer_phone: phone }, order_meta: { return_url: origin.origin + '/app/settings?order_id=' + order.id } }, idempotencyKey);
+    const result = await cashfree('/orders', { order_id: order.id, order_amount: order.amount / 100, order_currency: 'INR', customer_details: { customer_id: owner, customer_phone: phone }, order_meta: { return_url: origin.origin + '/app/settings?order_id=' + order.id, notify_url: origin.origin + '/api/billing/webhook' } }, idempotencyKey);
     if (result.order_id !== order.id || typeof result.payment_session_id !== 'string') throw new ManagedError(502, 'billing_response', 'Cashfree checkout returned an invalid order.');
     order.session = result.payment_session_id;
     await db.prepare('UPDATE payment_orders SET session=? WHERE id=?').run(order.session, order.id);

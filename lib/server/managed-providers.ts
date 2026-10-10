@@ -25,7 +25,7 @@ export async function routingPolicy(db: Storage, owner: string) {
   if (account.profile === 'premium' && !plan.premium) throw new ManagedError(403, 'premium_required', 'Choose SWARM SWE or renew Pro to use Premium.');
   const policy = modelPolicy();
   const ids = account.profile === 'premium' ? policy.premium : policy.standard;
-  const fast = account.profile === 'flash' || account.speed === 'fast';
+  const fast = plan.premium && (account.profile === 'flash' || account.speed === 'fast');
   const quality = account.profile === 'premium' || account.speed === 'quality';
   return { ids, routing: fast ? 'fastest' as const : quality ? 'quality' as const : 'auto' as const, reasoningEffort: fast ? 'low' as const : quality ? 'high' as const : 'medium' as const };
 }

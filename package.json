@@ -8,7 +8,9 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "eval:quality": "tsx scripts/run-quality-eval.ts",
+    "capture:responses": "tsx scripts/capture-real-responses.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

@@ -1,7 +1,7 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
-import './premium.css'
+import './workspace-design.css'
 
 export const metadata: Metadata = {
   title: 'SWARM AI — One mission. Many minds.',
@@ -10,10 +10,10 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  colorScheme: 'light',
+  colorScheme: 'dark light',
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'white' },
+    { media: '(prefers-color-scheme: dark)', color: '#111218' },
   ],
 }
 

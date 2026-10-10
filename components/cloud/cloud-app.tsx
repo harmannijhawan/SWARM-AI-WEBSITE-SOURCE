@@ -1,5 +1,9 @@
 'use client';
-import { ManagedAccount } from './managed-account';
+import { ManagedAccount, PlanUpgradeButton } from './managed-account';
+import { DownloadsWorkspace } from './downloads-workspace';
+import { CopyButton } from './design-system';
+import { ThemeButton } from './theme-button';
+import { WorkspaceCommands, ConversationDialog, type ConversationAction } from './workspace-dialogs';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type UIEvent } from 'react';
 import {setAuthTokenGetter,getAuthToken} from '@/lib/cloud-api/custom-fetch';
 import { SettingsWorkspace, PreferenceEffects } from './settings-workspace';
@@ -8,15 +12,15 @@ import { ClerkProvider, SignIn, SignUp, Show, useClerk, useAuth } from '@clerk/r
 
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
-  Activity, ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, Check, CircleHelp, Clock3,
+  ChevronDown, UserRound, Activity, ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, Check, CircleHelp, Clock3,
   Copy, Workflow, Smartphone, MessageSquareText, FileCode2, KeyRound, LockKeyhole, LogOut, Menu, MessageSquarePlus, MoreHorizontal, PanelLeftClose,
   PanelLeftOpen, Pencil, Plus, Search, Settings2, ShieldCheck, Sparkles, Trash2, X, Zap,
 } from 'lucide-react';
 import {
   getConversation, getGetConversationQueryKey, getListConversationsQueryKey, getListModelsQueryKey,
-  getListProvidersQueryKey, useCreateConversation, useDeleteConversation, useDeleteProvider,
+  getListProvidersQueryKey, useCreateConversation, useDeleteConversation,
   useGetConversation, useListConversations, useListModels, useListProviders,
-  useRenameConversation, useSaveProvider,
+  useRenameConversation,
 } from '@/lib/cloud-api';
 import type { Conversation, Message, ProviderSummary, StreamConversationInput } from '@/lib/cloud-api';
 import Link from 'next/link';
@@ -39,28 +43,10 @@ const clerkProxyUrl = process.env.NEXT_PUBLIC_CLERK_PROXY_URL;
 function stripBase(path: string) { return path; }
 
 const appearance = {
-  cssLayerName: 'clerk',
-  options: { logoPlacement: 'inside' as const, logoLinkUrl: basePath || '/', logoImageUrl: `/brand/swarm-wordmark.png` },
-  variables: {
-    colorPrimary: '#216bd0', colorForeground: '#101114', colorMutedForeground: '#6f6f6f',
-    colorDanger: '#bd4949', colorBackground: '#ffffff', colorInput: '#f8f8f8',
-    colorInputForeground: '#101114', colorNeutral: '#e0e0e0', fontFamily: 'Manrope, sans-serif', borderRadius: '0.75rem',
-  },
-  elements: {
-    rootBox: 'w-full flex justify-center',
-    cardBox: 'bg-white rounded-2xl w-[440px] max-w-full overflow-hidden shadow-xl',
-    card: '!shadow-none !border-0 !bg-transparent !rounded-none',
-    footer: '!shadow-none !border-0 !bg-transparent !rounded-none',
-    headerTitle: 'text-[#101114] font-bold', headerSubtitle: 'text-[#6f6f6f]',
-    socialButtonsBlockButtonText: 'text-[#101114]', formFieldLabel: 'text-[#3d3d3d]',
-    footerActionLink: 'text-[#101114] font-semibold', footerActionText: 'text-[#6f6f6f]',
-    dividerText: 'text-[#6f6f6f]', identityPreviewEditButton: 'text-[#101114]',
-    formFieldSuccessText: 'text-[#494949]', alertText: 'text-[#943e3e]',
-    logoBox: 'h-10', logoImage: 'max-h-9', socialButtonsBlockButton: 'border-[#e0e0e0] hover:bg-[#f4f4f4]',
-    formButtonPrimary: 'bg-[#216bd0] hover:bg-[#1755ab]', formFieldInput: 'bg-[#f8f8f8] border-[#e0e0e0]',
-    footerAction: 'border-t border-[#e9e9e9]', dividerLine: 'bg-[#e0e0e0]', alert: 'bg-[#f7f7f7]',
-    otpCodeFieldInput: 'border-[#e0e0e0]', formFieldRow: 'gap-1', main: 'gap-4',
-  },
+  cssLayerName:'clerk',
+  options:{logoPlacement:'inside' as const,logoLinkUrl:'/',logoImageUrl:'/brand/swarm-wordmark.png'},
+  variables:{colorPrimary:'#216bd0',colorForeground:'#101114',colorMutedForeground:'#758195',colorDanger:'#bd4949',colorBackground:'#ffffff',colorInput:'#f5f8fc',colorInputForeground:'#101114',colorNeutral:'#758195',fontFamily:'Inter, Segoe UI, sans-serif',borderRadius:'0.625rem'},
+  elements:{rootBox:'w-full flex justify-center',cardBox:'sw-auth-card w-[440px] max-w-full overflow-hidden',card:'!shadow-none !border-0 !bg-transparent',footer:'!shadow-none !border-0 !bg-transparent',logoImage:'sw-auth-logo',formButtonPrimary:'sw-auth-primary'}
 };
 
 type StreamUpdate = {
@@ -89,10 +75,10 @@ function ClerkCacheReset() {
 }
 
 function SignInPage() {
-  return <div className="min-h-[100dvh] grid place-items-center px-4 py-10 bg-white"><div className="w-full max-w-[440px]"><div className="mb-7 flex justify-center"><Brand /></div><SignIn fallbackRedirectUrl="/app" routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /></div></div>;
+  return <div className="sw-auth-page min-h-[100dvh] grid place-items-center px-4 py-10"><div className="w-full max-w-[440px]"><div className="mb-7 flex justify-center"><Brand /></div><SignIn fallbackRedirectUrl="/app" routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /></div></div>;
 }
 function SignUpPage() {
-  return <div className="min-h-[100dvh] grid place-items-center px-4 py-10 bg-white"><div className="w-full max-w-[440px]"><div className="mb-7 flex justify-center"><Brand /></div><SignUp fallbackRedirectUrl="/app" routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div></div>;
+  return <div className="sw-auth-page min-h-[100dvh] grid place-items-center px-4 py-10"><div className="w-full max-w-[440px]"><div className="mb-7 flex justify-center"><Brand /></div><SignUp fallbackRedirectUrl="/app" routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div></div>;
 }
 function Protected({ children }: { children: ReactNode }) {
   return <><Show when="signed-in"><PreferenceEffects/>{children}</Show><Show when="signed-out"><Redirect to="/sign-in" /></Show></>;
@@ -105,10 +91,13 @@ function SignOutButton() {
 
 type ResponseMode = 'chat'|'swarm';
 function PrivateShell({ children, mode, onMode }: { children: ReactNode; mode?:ResponseMode;onMode?:(mode:ResponseMode)=>void }) {
+  const pathname=usePathname();
   return <div className="cloud-shell desktop-web-shell flex h-[100dvh] flex-col bg-background">
-    <header className="desktop-web-topbar"><Link href="/" aria-label="SWARM home" className="desktop-web-brand"><img src="/swarm-icon.png" alt=""/><span>SWARM</span></Link><nav aria-label="Workspace navigation">{onMode?<><button aria-current={mode==='chat'?'page':undefined} onClick={()=>onMode('chat')}><MessageSquareText size={16}/> Chat</button><button aria-current={mode==='swarm'?'page':undefined} onClick={()=>onMode('swarm')}><Workflow size={16}/> Build</button></>:<><Link href="/app?mode=chat"><MessageSquareText size={16}/> Chat</Link><Link href="/app?mode=build"><Workflow size={16}/> Build</Link></>}<Link href="/#download"><Smartphone size={16}/> Downloads</Link><Link href="/app/settings"><Settings2 size={16}/> Settings</Link></nav><div className="desktop-web-account">{clerkPubKey?<SignOutButton/>:<Link href="/sign-in">Log in <ArrowRight size={13}/></Link>}</div></header><main className="min-h-0 flex-1">{children}</main>
+    <header className="desktop-web-topbar"><Link href="/" aria-label="SWARM home" className="desktop-web-brand"><img className="sw-original-mark" src="/brand/swarm-mark.png" alt=""/><img className="sw-original-wordmark" src="/brand/swarm-wordmark.png" alt="SWARM"/></Link><nav aria-label="Workspace navigation">{onMode?<><button aria-current={mode==='chat'?'page':undefined} onClick={()=>onMode('chat')}><MessageSquareText size={16}/> Chat</button><button aria-current={mode==='swarm'?'page':undefined} onClick={()=>onMode('swarm')}><Workflow size={16}/> Build</button></>:<><Link href="/app?mode=chat"><MessageSquareText size={16}/> Chat</Link><Link href="/app?mode=build"><Workflow size={16}/> Build</Link></>}<Link href="/app/downloads" aria-current={pathname==='/app/downloads'?'page':undefined}><Smartphone size={16}/> Downloads</Link><Link href="/app/settings" aria-current={pathname==='/app/settings'?'page':undefined}><Settings2 size={16}/> Settings</Link></nav><div className="desktop-web-account"><ThemeButton/><WorkspaceCommands/><details className="sw-account-menu"><summary aria-label="Account menu"><span className="sw-account-avatar"><UserRound size={15}/></span><span>Workspace</span><ChevronDown size={12}/></summary><div className="sw-account-popover"><Link href="/app/settings"><Settings2 size={14}/>Account & preferences</Link><Link href="/pricing"><Sparkles size={14}/>Plans</Link>{clerkPubKey?<SignOutButton/>:<Link href="/sign-in">Log in <ArrowRight size={13}/></Link>}</div></details></div></header><main className="min-h-0 flex-1">{children}</main>
   </div>;
 }
+
+function SlidersIcon(){return <Settings2 size={12}/>;}
 
 function dateGroup(iso: string) {
   const today = new Date(); today.setHours(0,0,0,0);
@@ -123,6 +112,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   const pathname=usePathname();
   useEffect(()=>{const params=new URLSearchParams(window.location.search);setMode(params.get('mode')==='build'?'swarm':'chat');if(params.get('prompt'))setDraft(params.get('prompt')!);if(params.get('conversation'))setSelectedId(params.get('conversation'));},[pathname]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [conversationAction,setConversationAction]=useState<ConversationAction|null>(null);
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -134,7 +124,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   const [modelId, setModelId] = useState('auto');
   const [activeModel, setActiveModel] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  useEffect(() => { setSidebarOpen(window.matchMedia('(min-width: 768px)').matches); }, []);
+  useEffect(() => { const media=window.matchMedia('(min-width: 768px)');const update=()=>setSidebarOpen(media.matches);update();media.addEventListener('change',update);return()=>media.removeEventListener('change',update); }, []);
   const [editingMessage, setEditingMessage] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [scrollDown, setScrollDown] = useState(false);
@@ -170,7 +160,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
     window.addEventListener('swarm:new-chat', start);
     return () => window.removeEventListener('swarm:new-chat', start);
   }, []);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [renderedMessages.length, streaming, agentEvents.length]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: document.querySelector('.cloud-theme')?.getAttribute('data-motion')==='off'||matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth', block: 'end' }); }, [renderedMessages.length, streaming, agentEvents.length]);
   const invalidateConversation = (id?: string) => {
     void cache.invalidateQueries({ queryKey: getListConversationsQueryKey() });
     if (id) void cache.invalidateQueries({ queryKey: getGetConversationQueryKey(id) });
@@ -276,18 +266,9 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
     if (!selectedModel || busy) return;
     void streamRequest({ action, ...(message ? { messageId: message.id } : {}), providerId: selectedModel.providerId, modelId: selectedModel.modelId, mode });
   }
-  async function doRename(id: string, title: string) {
-    const next = window.prompt('Rename conversation', title);
-    if (!next?.trim() || next.trim() === title) return;
-    await renameConversation.mutateAsync({ id, data: { title: next.trim() } });
-    invalidateConversation(id);
-  }
-  async function doDelete(id: string, title: string) {
-    if (!window.confirm(`Delete “${title}”? This cannot be undone.`)) return;
-    await deleteConversation.mutateAsync({ id });
-    if (selectedId === id) { setSelectedId(null); setDraftMessages([]); }
-    invalidateConversation(id);
-  }
+  function doRename(id:string,title:string){setConversationAction({kind:'rename',id,title});}
+  function doDelete(id:string,title:string){setConversationAction({kind:'delete',id,title});}
+  async function commitConversationAction(title:string){if(!conversationAction)return;const {id,kind}=conversationAction;if(kind==='rename')await renameConversation.mutateAsync({id,data:{title}});else{await deleteConversation.mutateAsync({id});if(selectedId===id){setSelectedId(null);setDraftMessages([]);}}invalidateConversation(id);}
   function onScroll(event: UIEvent<HTMLDivElement>) { const el = event.currentTarget; setScrollDown(el.scrollHeight - el.scrollTop - el.clientHeight > 140); }
 
   return <div className={`desktop-web-workspace flex h-[calc(100dvh-3.5rem)] min-h-0 overflow-hidden ${idleBuild?'build-welcome':''}`}>
@@ -299,34 +280,35 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
             : !conversations.length ? <div className="m-3 rounded-xl border border-dashed border-border px-3 py-5 text-center"><Clock3 className="mx-auto mb-2 text-muted-foreground" size={17} /><p className="text-xs font-semibold">{search ? 'No matches' : 'Nothing here yet'}</p><p className="mt-1 text-[11px] text-muted-foreground">{search ? 'Try another search term.' : 'Your saved conversations will appear here.'}</p></div>
               : ['Today','Yesterday','Previous 7 days','Older'].map((group) => {
                 const groupItems = conversations.filter((item) => dateGroup(item.updatedAt) === group);
-                return groupItems.length ? <section key={group} className="mb-3"><h2 className="px-3 pb-1 pt-3 font-mono text-[9px] font-medium uppercase tracking-[.17em] text-muted-foreground">{group}</h2>{groupItems.map((item) => <div key={item.id} className={`group mb-0.5 flex items-center rounded-lg ${selectedId === item.id ? 'bg-[#e8e8e8] text-[#454545]' : 'text-muted-foreground hover:bg-secondary'}`}><button data-testid={`conversation-${item.id}`} disabled={busy} onClick={() => { setSelectedId(item.id); if (window.innerWidth < 768) setSidebarOpen(false); }} className="min-w-0 flex-1 truncate px-3 py-2 text-left text-xs font-semibold">{item.title}</button><details className="relative mr-1"><summary aria-label={`Conversation actions: ${item.title}`} className="list-none rounded p-1 opacity-0 hover:bg-white group-hover:opacity-100 focus:opacity-100"><MoreHorizontal size={15} /></summary><div className="absolute right-0 top-7 z-20 w-36 rounded-lg border border-border bg-card p-1 shadow-lg"><button data-testid={`rename-conversation-${item.id}`} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs hover:bg-secondary" onClick={() => void doRename(item.id,item.title)}><Pencil size={13} /> Rename</button><button data-testid={`delete-conversation-${item.id}`} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-destructive hover:bg-destructive/5" onClick={() => void doDelete(item.id,item.title)}><Trash2 size={13} /> Delete</button></div></details></div>)}</section> : null;
+                return groupItems.length ? <section key={group} className="mb-3"><h2 className="px-3 pb-1 pt-3 font-mono text-[9px] font-medium uppercase tracking-[.17em] text-muted-foreground">{group}</h2>{groupItems.map((item) => <div key={item.id} data-selected={selectedId===item.id} className={`group mb-0.5 flex items-center rounded-lg ${selectedId === item.id ? 'text-foreground' : 'text-muted-foreground hover:bg-secondary'}`}><button data-testid={`conversation-${item.id}`} disabled={busy} onClick={() => { setSelectedId(item.id); if (window.innerWidth < 768) setSidebarOpen(false); }} className="min-w-0 flex-1 truncate px-3 py-2 text-left text-xs font-semibold">{item.title}</button><details className="relative mr-1"><summary aria-label={`Conversation actions: ${item.title}`} className="list-none rounded p-1 opacity-0 hover:bg-white group-hover:opacity-100 focus:opacity-100"><MoreHorizontal size={15} /></summary><div className="absolute right-0 top-7 z-20 w-36 rounded-lg border border-border bg-card p-1 shadow-lg"><button data-testid={`rename-conversation-${item.id}`} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs hover:bg-secondary" onClick={() => void doRename(item.id,item.title)}><Pencil size={13} /> Rename</button><button data-testid={`delete-conversation-${item.id}`} className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-destructive hover:bg-destructive/5" onClick={() => void doDelete(item.id,item.title)}><Trash2 size={13} /> Delete</button></div></details></div>)}</section> : null;
               })}
       </div>
-      <div className="border-t border-border p-3"><Link href="/app/settings" className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs font-semibold text-muted-foreground hover:bg-secondary"><Settings2 size={15} /> Provider settings <ArrowRight className="ml-auto" size={13} /></Link></div>
+      <PlanUpgradeButton/>
+      <div className="border-t border-border p-3"><Link href="/app/settings" className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs font-semibold text-muted-foreground hover:bg-secondary"><Settings2 size={15} /> Account settings <ArrowRight className="ml-auto" size={13} /></Link></div>
     </aside>}
     {sidebarOpen && <button aria-label="Close conversation history" onClick={() => setSidebarOpen(false)} className="fixed inset-x-0 bottom-0 top-14 z-20 bg-[#10111466] md:hidden" />}
     <BuildLayout conversationId={selectedId} artifactText={[...activeMessages].reverse().find(m=>m.role==='assistant')?.content||''} onChat={()=>setMode('chat')} enabled={mode === 'swarm' && !idleBuild} busy={busy} events={buildEvents.length ? buildEvents : ((activeMessages.at(-1) as Message & {buildEvents?:BuildEvent[]})?.buildEvents || [])} objective={[...activeMessages,...draftMessages].filter(m=>m.role === 'user').at(-1)?.content || draft} error={streamError}>
-    <section className={`desktop-web-conversation flex min-w-0 flex-1 flex-col ${idleBuild?'desktop-build-welcome':''}`}>
-      <div className="desktop-conversation-heading"><div><button data-testid="button-toggle-history" aria-label={sidebarOpen?'Hide history':'Show history'} onClick={()=>setSidebarOpen(!sidebarOpen)}>{sidebarOpen?<PanelLeftClose size={16}/>:<PanelLeftOpen size={16}/>}</button><div><strong>{detail?.title||(mode==='swarm'?'Build':'SWARM')}</strong><p>{mode==='swarm'?'Plan, code, review, package':'Your coordinator'}</p></div></div><span className="desktop-live-pill"><Activity size={14}/>{busy?'Working':'Live work'}</span></div>
+    <ConversationDialog action={conversationAction} onClose={()=>setConversationAction(null)} onSubmit={commitConversationAction}/><section className={`desktop-web-conversation flex min-w-0 flex-1 flex-col ${idleBuild?'desktop-build-welcome':''}`}>
+      <div className="desktop-conversation-heading"><div><button data-testid="button-toggle-history" aria-label={sidebarOpen?'Hide history':'Show history'} onClick={()=>setSidebarOpen(!sidebarOpen)}>{sidebarOpen?<PanelLeftClose size={16}/>:<PanelLeftOpen size={16}/>}</button><div><strong>{detail?.title||(mode==='swarm'?'Build':'SWARM')}</strong><p>{mode==='swarm'?'Plan, code, review, package':'Your coordinator'}</p></div></div><span className="desktop-live-pill"><Activity size={14}/>{busy?'Working':'Ready when you are'}</span></div>
       <div className="desktop-message-area relative min-h-0 flex-1">
         <div className="scroll-thin h-full overflow-y-auto" onScroll={onScroll}>
           {detailLoading && selectedId ? <div className="mx-auto max-w-[760px] space-y-6 px-6 py-12" role="status" aria-label="Loading conversation">{[1,2,3].map((i) => <div key={i} className="animate-pulse space-y-2"><div className="h-3 w-20 rounded bg-muted" /><div className="h-4 w-full rounded bg-muted" /><div className="h-4 w-4/5 rounded bg-muted" /></div>)}</div>
             : detailError && selectedId ? <div className="mx-auto mt-24 max-w-md rounded-2xl border border-destructive/20 bg-card p-7 text-center"><CircleHelp className="mx-auto text-destructive" size={24} /><h2 className="mt-3 font-bold">Couldn’t open this conversation</h2><p className="mt-2 text-sm text-muted-foreground">Try again or select another conversation.</p><button data-testid="button-retry-conversation" onClick={() => void reloadDetail()} className="mt-4 rounded-lg bg-secondary px-4 py-2 text-sm font-semibold">Retry</button></div>
               : !renderedMessages.length && !busy ? <div className={`desktop-welcome ${idleBuild?'desktop-welcome-build':'desktop-welcome-chat'}`}>
-                {idleBuild?<span className="desktop-build-eyebrow">AUTONOMOUS WORKSPACE</span>:<img src="/swarm-icon.png" alt="" className="desktop-welcome-mark"/>}
-                <h1>{idleBuild?'What should SWARM build?':'What shall we work on?'}</h1><p>{idleBuild?'Describe the outcome and target platform. SWARM will plan, build, and review the code.':'Talk to SWARM. Explore an idea, work through a problem, or create your next project.'}</p>
+                {idleBuild?<span className="desktop-build-eyebrow">AUTONOMOUS WORKSPACE</span>:<span className="sw-welcome-emblem"><img src="/brand/swarm-mark.png" alt="SWARM"/></span>}
+                <h1>{idleBuild?'What should SWARM build?':'A thought. A possibility. A start.'}</h1><p>{idleBuild?'Describe the outcome and target platform. SWARM will plan, build, and review the code.':'Bring your question or your next big idea. We’ll work through it together.'}</p>
                 {!validModels.length&&!modelsLoading&&<Link className="desktop-provider-link" href="/app/settings"><KeyRound size={15}/> AI service status</Link>}
                 <div className="desktop-welcome-suggestions">{(idleBuild?[['Web','Build a website that '],['Windows','Build a Windows app that '],['Android','Build an Android app that '],['CLI','Create a CLI tool that ']]:[['Explore an idea','Help me develop an idea for '],['Explain some code','Explain this code: '],['Build a website','Build a website that ']]).map(([label,prompt])=><button key={label} onClick={()=>{if(!idleBuild&&label==='Build a website')setMode('swarm');prefill(prompt);}}>{label}{idleBuild&&<ArrowUpRight size={12}/>}</button>)}</div>
               </div>
               : <div className="mx-auto max-w-[760px] px-6 pb-12 pt-7">
-                {renderedMessages.map((message, index) => <article key={`${message.id}-${index}`} data-testid={`message-${message.id}`} className={`appear py-6 ${message.role === 'user' ? 'border-t border-border' : ''}`}>
+                {renderedMessages.map((message, index) => <article key={`${message.id}-${index}`} data-testid={`message-${message.id}`} className={`appear ${message.role === 'user' ? 'sw-message-user' : 'sw-message-assistant'}`}>
                   <div className="mb-3 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[.12em] text-muted-foreground">{message.role === 'user' ? 'You' : <><img src="/brand/swarm-mark.png" alt="" className="h-4 w-4 object-contain" /> SWARM</>}<span className="ml-auto normal-case tracking-normal font-medium">{message.role === 'assistant' && (message as Message & { modelName?: string }).modelName && <span className="mr-2 hidden sm:inline">{(message as Message & { modelName?: string }).modelName}</span>}{new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>
                   <div className="message-content text-[14px] text-foreground">{message.role === 'assistant' ? <ChatMarkdown text={message.content} /> : message.content}</div>
                   {message.role === 'user' && <div className="mt-3 flex gap-3 text-[11px] text-muted-foreground"><button data-testid={`edit-message-${message.id}`} disabled={busy || !selectedModel} onClick={() => startEdit(message)} className="hover:text-foreground disabled:opacity-40">Edit</button></div>}
-                  {message.role === 'assistant' && <div className="mt-3 flex gap-3 text-[11px] text-muted-foreground"><button data-testid={`copy-message-${message.id}`} onClick={() => void navigator.clipboard.writeText(message.content)} className="inline-flex items-center gap-1 hover:text-foreground"><Copy size={12} /> Copy</button><button data-testid={`regenerate-message-${message.id}`} disabled={busy || !selectedModel || !renderedMessages.slice(0,index).some((entry) => entry.role === 'user')} onClick={() => { const previousUser = renderedMessages.slice(0,index).reverse().find((entry) => entry.role === 'user'); if (previousUser) respondTo('regenerate', previousUser); }} className="hover:text-foreground disabled:opacity-40">Regenerate</button><button data-testid={`continue-message-${message.id}`} disabled={busy || !selectedModel} onClick={() => respondTo('continue', message)} className="hover:text-foreground disabled:opacity-40">Continue</button></div>}
+                  {message.role === 'assistant' && <div className="mt-3 flex gap-3 text-[11px] text-muted-foreground"><CopyButton text={message.content} testId={`copy-message-${message.id}`}/><button data-testid={`regenerate-message-${message.id}`} disabled={busy || !selectedModel || !renderedMessages.slice(0,index).some((entry) => entry.role === 'user')} onClick={() => { const previousUser = renderedMessages.slice(0,index).reverse().find((entry) => entry.role === 'user'); if (previousUser) respondTo('regenerate', previousUser); }} className="hover:text-foreground disabled:opacity-40">Regenerate</button><button data-testid={`continue-message-${message.id}`} disabled={busy || !selectedModel} onClick={() => respondTo('continue', message)} className="hover:text-foreground disabled:opacity-40">Continue</button></div>}
                 </article>)}
                 {agentEvents.map((event, index) => <div key={`${index}-${event}`} data-testid={`agent-status-${index}`} role="status" className="mb-2 flex items-center gap-2 text-xs text-[#101114]"><Activity size={13} />{event}</div>)}
-                {busy && <article className="py-5" role="status" aria-label="Response streaming"><div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.12em] text-[#101114]"><span className="pulse-dot h-1.5 w-1.5 rounded-full bg-[#101114]" />{mode === 'swarm' ? 'Build response' : 'Response'}</div><div className="message-content text-sm">{streaming ? <ChatMarkdown text={streaming} /> : <span className="text-muted-foreground">Waiting for response…</span>}</div></article>}
+                {busy && <article className="py-5" role="status" aria-label="Response streaming"><div className="mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[.12em] text-[#101114]"><span className="pulse-dot h-1.5 w-1.5 rounded-full bg-primary" />{mode === 'swarm' ? 'Build response' : 'Response'}</div><div className="message-content text-sm">{streaming ? <ChatMarkdown text={streaming} /> : <span className="text-muted-foreground">Waiting for response…</span>}</div></article>}
                 <div ref={endRef} />
               </div>}
         </div>
@@ -335,10 +317,11 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
       <div className="desktop-composer-wrap shrink-0 bg-background px-4 pb-4 pt-3 md:px-8">
         <div className="mx-auto max-w-[760px]">
           {streamError && <div data-testid="status-stream-error" role="alert" className="mb-2 flex items-center justify-between rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive"><span>{streamError}</span>{retryRequest&&<button disabled={busy} className="ml-3 font-bold underline" onClick={()=>void retryFailedResponse()}>Retry</button>}<button aria-label="Dismiss error" onClick={() => setStreamError('')}><X size={14} /></button></div>}
+          {/Your SWARM allowance is exhausted|Unlock SWARM SWE Fast with Pro|SWARM Premium requires Pro/.test(streamError) && <button type="button" onClick={() => window.dispatchEvent(new Event('swarm:upgrade'))} className="mb-3 rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white">View Pro plans</button>}
           {editingMessage && <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">Editing your message<button data-testid="button-cancel-edit" onClick={() => { setEditingMessage(null); setDraft(''); }} className="font-semibold text-foreground">Cancel</button></div>}
           <form data-testid="form-chat-composer" onSubmit={submit} className="rounded-2xl border border-border bg-card p-3 shadow-[0_8px_28px_rgba(16,17,20,.06)] focus-within:border-[#aaaaaa]">
-            <textarea ref={inputRef} data-testid="input-chat-prompt" aria-label="Message SWARM" rows={2} maxLength={32000} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} placeholder={validModels.length ? (mode==='swarm'?'What do you want to build?':'Ask SWARM anything…') : 'SWARM AI is awaiting backend availability…'} disabled={!validModels.length || busy} className="min-h-[52px] max-h-48 w-full resize-y bg-transparent px-2 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60" />
-            <ManagedAccount compact/>
+            <textarea ref={inputRef} data-testid="input-chat-prompt" aria-label="Message SWARM" rows={2} maxLength={32000} value={draft} onChange={(e) => {setDraft(e.target.value);e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,192)+'px';}} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} placeholder={validModels.length ? (mode==='swarm'?'What do you want to build?':'Ask SWARM anything…') : 'Write your message… AI service is temporarily unavailable.'} disabled={busy} className="min-h-[52px] max-h-48 w-full resize-y bg-transparent px-2 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60" />
+            <details className="composer-account"><summary><SlidersIcon/> Model preferences & allowance <ChevronDown size={12}/></summary><ManagedAccount compact/></details>
       <div className="flex flex-wrap items-center gap-2 pt-2">
               <label className="sr-only" htmlFor="model-select">Provider and model</label>
               <select id="model-select" data-testid="select-chat-model" value={selectedModel?.id ?? ''} onChange={(e) => setModelId(e.target.value)} disabled={busy || !validModels.length || modelsLoading} className="max-w-[min(54vw,280px)] rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-semibold text-foreground outline-none focus:ring-2 focus:ring-[#101114]/20">
@@ -378,7 +361,7 @@ function ProviderSettings() { return <ManagedAccount/>; }
 
 function Router() {
   const [location] = useLocation();
-  const content = location.startsWith('/sign-in') ? <SignInPage /> : location.startsWith('/sign-up') ? <SignUpPage /> : location === '/desktop/connect' ? <DesktopConnect/> : location === '/app/settings' ? <SettingsPage /> : <ChatApp />;
+  const content = location.startsWith('/sign-in') ? <SignInPage /> : location.startsWith('/sign-up') ? <SignUpPage /> : location === '/desktop/connect' ? <DesktopConnect/> : location === '/app/settings' ? <SettingsPage /> : location === '/app/downloads' ? <PrivateShell><DownloadsWorkspace/></PrivateShell> : <ChatApp />;
   return <ErrorBoundary resetKey={location}>{location.startsWith('/sign-') || !clerkPubKey ? content : <Protected>{content}</Protected>}</ErrorBoundary>;
 }
 function ClerkRouter() {
@@ -393,6 +376,6 @@ function PreviewContent() {
   return <Router />;
 }
 function App() {
-  return <div className="cloud-theme">{clerkPubKey ? <ClerkRouter /> : <QueryClientProvider client={queryClient}><PreviewContent /></QueryClientProvider>}</div>;
+  return <div className="cloud-theme">{clerkPubKey ? <ClerkRouter /> : <QueryClientProvider client={queryClient}><PreferenceEffects/><PreviewContent /></QueryClientProvider>}</div>;
 }
 export default App;

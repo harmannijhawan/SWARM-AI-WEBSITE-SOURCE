@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  distDir: process.env.SWARM_BUILD_DIR || '.next',
   images: { unoptimized: true },
   serverExternalPackages: ['esbuild','pg'],
   async rewrites() {

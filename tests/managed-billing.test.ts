@@ -94,15 +94,16 @@ test('sandbox checkout uses server ₹699 price, same customer ID and stable ord
     const first=await createCheckout(db,'alice','checkout-request','9999999999'),again=await createCheckout(db,'alice','checkout-request','9999999999');
     assert.equal(first.orderId,again.orderId);assert.equal(first.mode,'sandbox');assert.equal(cf.requests.length,1);
     assert.equal(cf.requests[0].body.order_amount,699);assert.equal(cf.requests[0].body.customer_details.customer_id,'alice');assert.match(cf.requests[0].key!,/^[a-f0-9-]{36}$/);
+    assert.deepEqual(cf.requests[0].body.order_meta,{return_url:'http://localhost:3000/app/settings?order_id='+first.orderId,notify_url:'http://localhost:3000/api/billing/webhook'});
     assert.equal((await accountUsage(db,'alice')).plan.id,'free');
   }finally{await db.close();}
 });
 test('verified success grants exactly 30 days; concurrent duplicate verification cannot extend entitlement',async t=>{
   const db=fresh(),cf=gateway(t);try{
-    const original=await initializeAccount(db,'alice');await saveManagedPreferences(db,'alice','flash','fast');
+    const original=await initializeAccount(db,'alice');await saveManagedPreferences(db,'alice','swe','balanced');
     const order=await createCheckout(db,'alice','paid-request','9999999999');paid(cf.orders.get(order.orderId)!);
     const start=Date.now();await Promise.all([verifyOrder(db,'alice',order.orderId),verifyOrder(db,'alice',order.orderId)]);
-    const usage=await accountUsage(db,'alice');assert.equal(usage.plan.id,'pro');assert.equal(usage.account.created,original.created);
+    await saveManagedPreferences(db,'alice','flash','fast');const usage=await accountUsage(db,'alice');assert.equal(usage.plan.id,'pro');assert.equal(usage.account.created,original.created);
     assert.equal(usage.account.profile,'flash');assert.equal(usage.account.speed,'fast');
     assert(usage.account.pro_until>=start+30*86400000&&usage.account.pro_until<=Date.now()+30*86400000);
     const expiry=usage.account.pro_until;await verifyOrder(db,'alice',order.orderId);assert.equal((await accountUsage(db,'alice')).account.pro_until,expiry);

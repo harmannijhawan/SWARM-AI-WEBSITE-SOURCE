@@ -1,0 +1,17 @@
+'use client';
+import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { Search, X, MessageSquareText, Workflow, Settings2, Download } from 'lucide-react';
+import { Button } from './design-system';
+export type ConversationAction={kind:'rename'|'delete';id:string;title:string};
+export function ConversationDialog({action,onClose,onSubmit}:{action:ConversationAction|null;onClose:()=>void;onSubmit:(title:string)=>Promise<void>}){
+  const ref=useRef<HTMLDialogElement>(null);const [value,setValue]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  useEffect(()=>{setValue(action?.title||'');setError('');if(action)ref.current?.showModal();else ref.current?.close();},[action]);
+  return <dialog ref={ref} className="sw-dialog conversation-dialog" onCancel={onClose} onClose={onClose} aria-labelledby="conversation-dialog-title"><form onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{await onSubmit(value.trim());onClose();}catch(e){setError(e instanceof Error?e.message:'This action could not complete.');}finally{setBusy(false);}}}><header><h2 id="conversation-dialog-title">{action?.kind==='delete'?'Delete conversation?':'Rename conversation'}</h2><Button type="button" variant="ghost" aria-label="Close dialog" onClick={onClose}><X size={18}/></Button></header>{action?.kind==='delete'?<p>“{action.title}” and its messages will be permanently deleted. This cannot be undone.</p>:<label>Conversation title<input autoFocus maxLength={120} value={value} onChange={e=>setValue(e.target.value)} required disabled={busy}/></label>}{error&&<p role="alert" className="sw-error">{error}</p>}<footer><Button type="button" disabled={busy} onClick={onClose}>Cancel</Button><Button variant="primary" type="submit" disabled={busy||!value.trim()}>{busy?'Working…':action?.kind==='delete'?'Delete conversation':'Save name'}</Button></footer></form></dialog>;
+}
+export function WorkspaceCommands(){
+  const ref=useRef<HTMLDialogElement>(null);const [search,setSearch]=useState('');
+  useEffect(()=>{const listener=(e:KeyboardEvent)=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();if(ref.current?.open)ref.current.close();else{setSearch('');ref.current?.showModal();}}};window.addEventListener('keydown',listener);return()=>window.removeEventListener('keydown',listener);},[]);
+  const items=[{name:'Chat',href:'/app?mode=chat',icon:MessageSquareText},{name:'Build Studio',href:'/app?mode=build',icon:Workflow},{name:'Downloads',href:'/app/downloads',icon:Download},{name:'Settings',href:'/app/settings',icon:Settings2}].filter(i=>i.name.toLowerCase().includes(search.toLowerCase()));
+  return <><button className="sw-command-trigger" title="Open commands (Ctrl / ⌘ K)" aria-label="Open workspace commands" onClick={()=>{setSearch('');ref.current?.showModal();}}><Search size={15}/><kbd>⌘ K</kbd></button><dialog className="sw-dialog command-dialog" ref={ref} aria-label="Workspace commands"><label><Search size={17}/><input autoFocus aria-label="Search workspace commands" placeholder="Where would you like to go?" value={search} onChange={e=>setSearch(e.target.value)}/><Button variant="ghost" aria-label="Close commands" onClick={()=>ref.current?.close()}><X size={15}/></Button></label><nav>{items.map(i=><Link key={i.href} href={i.href} onClick={()=>ref.current?.close()}><i.icon size={17}/>{i.name}</Link>)}{!items.length&&<p>No matching destinations.</p>}</nav><small>Tab to navigate · Enter to open · Esc to close</small></dialog></>;
+}
