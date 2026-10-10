@@ -22,6 +22,18 @@ test('new accounts receive Free, launch quotas and default preferences without p
     assert.equal(planCatalog().pro.price,69900);assert.equal(planCatalog().pro.accessDays,30);
   } finally { await db.close(); }
 });
+test('invalid account.created timestamps are fixed and reset date is valid', async () => {
+  const db = fresh();try {
+    // Regression test: accounts with invalid created timestamps should be fixed
+    await db.exec(`CREATE TABLE IF NOT EXISTS entitlements(owner TEXT PRIMARY KEY,created INTEGER NOT NULL,pro_until INTEGER NOT NULL,profile TEXT NOT NULL,speed TEXT NOT NULL)`);
+    await db.prepare("INSERT INTO entitlements VALUES(?,?,0,'swe','balanced')").run('bad-timestamp-user', 0);
+    const account = await initializeAccount(db,'bad-timestamp-user');
+    assert(account.created >= 1000000000000, 'created timestamp should be valid');
+    const usage = await accountUsage(db,'bad-timestamp-user');
+    assert(usage.resetsAt >= 1000000000000, 'resetsAt should be valid');
+    assert(usage.resetsAt > usage.period, 'resetsAt should be after period');
+  } finally { await db.close(); }
+});
 test('atomic reservations prevent simultaneous quota and concurrency bypass; failed requests release allowance', async () => {
   const db=fresh();try {
     await initializeAccount(db,'alice');

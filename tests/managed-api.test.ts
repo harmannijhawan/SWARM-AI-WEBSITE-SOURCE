@@ -34,7 +34,8 @@ test('authenticated new users get managed Free access; models are allowlisted an
   assert.equal((await request('conversations/'+created.id,bob)).status,404);
   assert.equal((await(await request('account/entitlements',bob)).json()).chats.used,0);
   assert.equal((await request('billing/verify',bob,{orderId:'unknown'})).status,404);
-  assert.equal((await request('health','invalid')).status,401);
+  // Health check is now public and works without authentication
+  assert.equal((await request('health','invalid')).status,200);
 });
 test('native internal inference calls consume one bounded build allowance and duplicate results are safely cached',async()=>{
   const token=await issueDevice(accountDatabase(),'native-user','test');

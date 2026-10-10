@@ -9,6 +9,9 @@ import {Storage} from '../lib/server/storage';
 import {CASHFREE_API_VERSION,cashfreeHeaders,cashfreeDiagnostic,cashfreeEnvironment,createCheckout,verifyOrder,CashfreeError} from '../lib/server/cashfree';
 import {accountUsage} from '../lib/server/entitlements';
 
+// Set test data directory before importing backend
+process.env.SWARM_DATA_DIR = mkdtempSync(join(tmpdir(),'swarm-cashfree-auth-'));
+
 test('Next server env loading reads quoted local credentials and preserves inherited precedence',()=>{
   const dir=mkdtempSync(join(tmpdir(),'swarm-env-regression-'));
   const require=createRequire(import.meta.url),envModule=createRequire(require.resolve('next/package.json')).resolve('@next/env');
@@ -74,8 +77,11 @@ test('diagnostics never log arbitrary echoed secrets, customer values or payload
 test('checkout route distinguishes SWARM unauthenticated 401 from Cashfree authentication 502',async t=>{
   const saved={...process.env};
   try{
-    Object.assign(process.env,{CLERK_SECRET_KEY:'fixture-device-only',SWARM_DATA_DIR:mkdtempSync(join(tmpdir(),'swarm-route-auth-')),CASHFREE_SANDBOX_CLIENT_ID:'fixture-app',CASHFREE_SANDBOX_CLIENT_SECRET:'fixture-secret',SWARM_PUBLIC_URL:'http://127.0.0.1:3000',SWARM_PRO_BUILDS:'1',SWARM_PRO_CHATS:'1'});
+    const testDir=mkdtempSync(join(tmpdir(),'swarm-route-auth-'));
+    Object.assign(process.env,{CLERK_SECRET_KEY:'fixture-device-only',SWARM_DATA_DIR:testDir,CASHFREE_SANDBOX_CLIENT_ID:'fixture-app',CASHFREE_SANDBOX_CLIENT_SECRET:'fixture-secret',SWARM_PUBLIC_URL:'http://127.0.0.1:3000',SWARM_PRO_BUILDS:'1',SWARM_PRO_CHATS:'1'});
     delete process.env.DATABASE_URL;delete process.env.SWARM_DATABASE_URL;
+    // Clear module cache to reload with new environment
+    delete require.cache[require.resolve('../lib/server/backend')];
     const {handleApi,accountDatabase}=await import('../lib/server/backend');const {issueDevice}=await import('../lib/server/accounts');
     t.mock.method(console,'warn',()=>{});
     t.mock.method(globalThis,'fetch',async()=>Response.json({code:'request_failed',type:'authentication_error',message:'authentication Failed'},{status:401}));

@@ -36,6 +36,16 @@ export async function managedTables(db: Storage) {
 }
 export async function initializeAccount(db: Storage, owner: string): Promise<Entitlement> {
   await managedTables(db);
+  const existing = await db.prepare('SELECT * FROM entitlements WHERE owner=?').get(owner) as Entitlement | undefined;
+  if (existing) {
+    // Fix invalid created timestamps
+    if (!existing.created || existing.created < 1000000000000) {
+      const now = Date.now();
+      await db.prepare('UPDATE entitlements SET created=? WHERE owner=?').run(now, owner);
+      existing.created = now;
+    }
+    return existing;
+  }
   await db.prepare("INSERT OR IGNORE INTO entitlements VALUES(?,?,0,'swe','balanced')").run(owner, Date.now());
   return await db.prepare('SELECT * FROM entitlements WHERE owner=?').get(owner) as Entitlement;
 }
@@ -43,7 +53,9 @@ export async function accountUsage(db: Storage, owner: string) {
   const account = await initializeAccount(db, owner), catalog = planCatalog();
   const plan = account.pro_until > Date.now() ? catalog.pro : catalog.free;
   const duration = plan.days * 86400000;
-  const period = account.created + Math.floor((Date.now() - account.created) / duration) * duration;
+  // Ensure account.created is valid before calculating period
+  const created = account.created || Date.now();
+  const period = created + Math.floor((Date.now() - created) / duration) * duration;
   const rows = await db.prepare("SELECT kind,COUNT(*) AS n FROM usage_ledger WHERE owner=? AND period=? AND state IN ('reserved','consumed') GROUP BY kind").all(owner, period);
   const count = (kind: string) => Number(rows.find(r => r.kind === kind)?.n || 0);
   return { account, plan, period, resetsAt: period + duration, builds: { used: count('build'), limit: plan.builds }, chats: { used: count('chat'), limit: plan.chats } };

@@ -19,9 +19,18 @@ const disable=(provider:string)=>{delete process.env[envNames[provider][0]];(glo
 const request=(path:string,method='GET',body?:unknown,origin='http://localhost:3000')=>handleApi(new Request(`http://localhost:3000/api/${path}`,{method,headers:{Origin:origin,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}),path.split('?')[0].split('/'));
 
 test('persistent conversations, managed keys, owner boundary, regeneration and SWARM events',async()=>{
-  assert.equal((await request('health')).status,200);
-  assert.equal((await request('health','GET',undefined,'https://untrusted.example')).status,403);
-  assert.equal((await handleApi(new Request('https://public.example/api/health'),['health'])).status,403);
+  // Regression test: health check should be public and work without authentication
+  const healthResponse=await request('health');
+  assert.equal(healthResponse.status,200);
+  const healthData=await healthResponse.json();
+  assert.equal(healthData.status,'ok');
+  assert.equal(typeof healthData.timestamp,'number');
+  assert.equal(healthData.mode,'local'); // CLERK_SECRET_KEY is deleted in setup
+
+  // Untrusted origins should still be rejected for authenticated endpoints
+  assert.equal((await request('conversations','GET',undefined,'https://untrusted.example')).status,403);
+  // Health check is public, so external requests to it are allowed
+  assert.equal((await handleApi(new Request('https://public.example/api/health'),['health'])).status,200);
   assert.equal((await request('providers/openai','PUT',{apiKey:'test-key-123456'})).status,403);
   configure('openai','test-key-123456',['test-model']);
   const safe=await (await request('providers')).text();assert(!safe.includes('123456'));assert(!safe.includes('3456'));

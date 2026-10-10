@@ -16,12 +16,18 @@ import { rankAutomatic, type RouteHealth, type Purpose } from './auto-router';
 import type { Capability } from './desktop-providers/domain-types';
 import { ProviderError } from './desktop-providers/types';
 import { chatBudget } from './chat-budget';
+import { validateConfiguration, logConfigurationIssues, throwIfConfigurationInvalid } from './config-validator';
 
 type Model = { id:string; modelId:string; displayName:string; providerId:string; providerName:string; capabilities?:Capability[]; contextLength?:number|null };
 type State = { db:Storage; secret:Buffer; active:Set<string>; models:Map<string,{time:number; value:{models:Model[];errors:{providerId:string;error:string}[]}}> };
 const globalState = globalThis as typeof globalThis & { swarmWeb?:State };
 function state():State {
   if (globalState.swarmWeb) return globalState.swarmWeb;
+  // Validate configuration at startup
+  const configIssues = validateConfiguration();
+  logConfigurationIssues(configIssues);
+  throwIfConfigurationInvalid(configIssues);
+  
   const cloud=process.env.SWARM_DATABASE_URL||process.env.DATABASE_URL;
   const dir=process.env.SWARM_DATA_DIR||join(process.cwd(),'.swarm-web');
   let secret:Buffer;
@@ -249,6 +255,10 @@ async function managedComplete(request:Request,owner:string,raw:Record<string,un
 export async function handleApi(request:Request,path:string[]):Promise<Response> {return storageContext(()=>handleApiInner(request,path));}
 async function handleApiInner(request:Request,path:string[]):Promise<Response> {
   try {
+    // Health check is public to allow frontend to verify backend availability without authentication
+    if(path.join('/')==='health'&&request.method==='GET')return json({status:'ok',mode:process.env.CLERK_SECRET_KEY?'account':'local',timestamp:Date.now()});
+    // Configuration diagnostics - public for setup guidance
+    if(path.join('/')==='config/diagnostics'&&request.method==='GET')return json({issues:validateConfiguration()});
     if(path.join('/')==='plans'&&request.method==='GET')return json({catalog:planCatalog(),checkoutAvailable:checkoutAvailable(),billingMode:cashfreeEnvironment().mode});
     if(path.join('/')==='billing/webhook'&&request.method==='POST')return json(await cashfreeWebhook(state().db,request));
     const exchange=path.join('/')==='account/desktop-token';
@@ -279,7 +289,6 @@ const policy=modelPolicy();const ids=b.profile==='premium'?policy.premium:policy
     if(owner&&path.join('/')==='managed/complete'&&method==='POST')return json(await managedComplete(request,owner,await bodyFor(request)));
     const account=await accountApi(request,path,owner,{db:state().db,readKey:async()=>null,writeKey:storeAccountKey,providers:adapters.map(a=>a.id),active:state().active});if(account)return account;
     if(!owner)throw new HttpError(401,'Sign in to continue.');
-    if(path[0]==='health'&&method==='GET')return json({status:'ok',mode:process.env.CLERK_SECRET_KEY?'account':'local'});
     if(path[0]==='models'&&method==='GET')return json(await modelList(owner));
     if(path[0]==='providers'){
       if(path.length===1&&method==='GET')return json({providers:await Promise.all(adapters.map(a=>summary(owner,a.id)))});

@@ -31,10 +31,21 @@ export function ManagedAccount({ compact = false }: { compact?: boolean }) {
     await factory({ mode: order.mode }).checkout({ paymentSessionId: order.paymentSessionId, redirectTarget: '_modal' });
     await verify(order.orderId);setRequestId('');
   }
+  const formatResetDate = (timestamp: number) => {
+    if (!timestamp || timestamp < 1000000000000) return 'Reset schedule unavailable';
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) return 'Reset schedule unavailable';
+      return date.toLocaleDateString();
+    } catch {
+      return 'Reset schedule unavailable';
+    }
+  };
+
   return <section className="rounded-xl border border-border bg-card p-4 space-y-3" aria-label="SWARM plan and usage">
     {!state ? <p role="status">Loading SWARM account…</p> : <>
       <div className="flex flex-wrap justify-between gap-2"><strong>{state.plan.id === 'pro' ? 'SWARM Pro' : 'SWARM Free'}</strong><span className="text-xs">Builds {state.builds.used} / {state.builds.limit ?? 'pending configuration'} · Chats {state.chats.used} / {state.chats.limit ?? 'pending configuration'}</span></div>
-      <p className="text-xs text-muted-foreground">Allowance resets {new Date(state.resetsAt).toLocaleDateString()}{state.plan.id === 'pro' ? ' · Pro expires ' + new Date(state.account.pro_until).toLocaleDateString() : ''}</p>
+      <p className="text-xs text-muted-foreground">Allowance resets {formatResetDate(state.resetsAt)}{state.plan.id === 'pro' ? ' · Pro expires ' + formatResetDate(state.account.pro_until) : ''}</p>
       <div className="flex flex-wrap gap-3"><label className="text-xs">Model profile <select disabled={busy} value={state.account.profile} onChange={e => void action(async () => { await call('account/model-preferences', { profile: e.target.value, speed: state.account.speed }); })}>{(state.profiles || []).map((p: any) => <option key={p.id} value={p.id} disabled={!p.available || !p.eligible}>{p.name}{!p.eligible ? ' · Pro required' : !p.available ? ' · unavailable' : ''}</option>)}</select></label><label className="text-xs">Generation <select disabled={busy} value={state.account.speed} onChange={e => void action(async () => { await call('account/model-preferences', { profile: state.account.profile, speed: e.target.value }); })}>{['fast','balanced','quality'].map(v => <option key={v}>{v}</option>)}</select></label></div>
       {!compact && <><p className="text-sm">SWARM manages AI access. Your account and preferences work across web and desktop without provider API keys. Prompts are processed by the configured third-party AI providers.</p>
         <h3 className="font-semibold">Pro · {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format((state.catalog.pro.price || 0) / 100)} / {state.catalog.pro.accessDays} days</h3>
