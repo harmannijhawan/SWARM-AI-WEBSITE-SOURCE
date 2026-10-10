@@ -105,7 +105,7 @@ function dateGroup(iso: string) {
   const age = Math.round((today.getTime() - day.getTime()) / 86400000);
   return age === 0 ? 'Today' : age === 1 ? 'Yesterday' : age < 7 ? 'Previous 7 days' : 'Older';
 }
-function ChatApp() { const [mode,setMode]=useState<ResponseMode>('chat');return <PrivateShell mode={mode} onMode={setMode}><Workspace mode={mode} setMode={setMode}/></PrivateShell>; }
+function ChatApp() { const [mode,setMode]=useState<ResponseMode>('chat');const changeMode=(next:ResponseMode)=>{setMode(next);const url=new URL(window.location.href);url.searchParams.set('mode',next==='swarm'?'build':'chat');window.history.replaceState(null,'',url);};return <PrivateShell mode={mode} onMode={changeMode}><Workspace mode={mode} setMode={changeMode}/></PrivateShell>; }
 
 function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)=>void}) {
   const cache = useQueryClient();
