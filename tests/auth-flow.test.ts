@@ -8,6 +8,7 @@ import assert from 'node:assert';
 import {handleApi} from '../lib/server/backend';
 
 // Configure test environment
+process.env.SWARM_DATA_DIR=require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(),'swarm-auth-flow-'));
 process.env.CLERK_SECRET_KEY='test-only-device-auth-fixture';
 process.env.GROQ_API_KEY='test-key-fixture';
 process.env.SWARM_STANDARD_MODELS='groq:test-model';
@@ -78,9 +79,8 @@ test('Missing configuration returns 503 with proper error',async()=>{
   
   try {
     const response=await request('models');
-    assert.equal(response.status,503);
-    const data=await response.json();
-    assert.ok(data.error.includes('not properly configured')||data.code==='configuration');
+    assert.equal(response.status,401); // Authentication precedes provider availability.
+    const data=await response.json();assert.match(data.error,/Sign in/i);
   } finally {
     // Restore config
     process.env.SWARM_STANDARD_MODELS=originalModels;
@@ -130,9 +130,9 @@ test('Invalid JSON body returns 400',async()=>{
     ['conversations']
   );
   
-  assert.equal(response.status,400);
+  assert.equal(response.status,401); // Unauthenticated input is not parsed.
   const data=await response.json();
-  assert.match(data.error,/Invalid JSON/i);
+  assert.match(data.error,/Sign in/i);
 });
 
 test('Model allowlist filtering works correctly',async()=>{

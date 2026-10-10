@@ -22,7 +22,7 @@ export function classifyHttp(status: number, body: string, headers?: Headers): P
   const lower = body.toLowerCase();
   const retryAfter = headers?.get('retry-after');
   const retryMs = retryAfter ? (Number.isFinite(Number(retryAfter)) ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now())) : undefined;
-  const snippet = body.slice(0, 300).replace(/\s+/g, ' ');
+  const snippet = 'Upstream response withheld';
   if (status === 429) {
     if (/limit:\s*0\b|quota.*exceeded.*free|insufficient_quota|billing/.test(lower)) return new ProviderError('quota', `Quota unavailable (429): ${snippet}`, status, retryMs);
     return new ProviderError('rate_limit', `Rate limited (429): ${snippet}`, status, retryMs ?? 60_000);

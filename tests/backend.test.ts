@@ -126,6 +126,8 @@ test('Auto rate-limit exhaustion is bounded and permanent authentication skips t
   const adapter=adapters.find(a=>a.id==='groq')!;
   adapter.discover=async()=>Array.from({length:10},(_,i)=>({modelId:`reliability-${i}`,displayName:`Fixture ${i}`,capabilities:['chat' as const],contextLength:8192,maxOutput:4096,freeStatus:'free' as const}));
   for(const category of ['rate_limit','auth'] as const){
+    await (globalThis as any).swarmWeb.db.prepare('DELETE FROM routing_health').run();
+    await new Promise(resolve=>setTimeout(resolve,5100));
     configure('groq','test-exhaustion-key',Array.from({length:10},(_,i)=>'reliability-'+i));
     let calls=0;adapter.chat=async()=>{calls++;throw new ProviderError(category,'Private upstream text',category==='auth'?401:429,1000);};
     const c=await (await request('conversations','POST',{})).json();
@@ -134,4 +136,19 @@ test('Auto rate-limit exhaustion is bounded and permanent authentication skips t
     assert.equal((await request(`conversations/${c.id}`,'DELETE')).status,204);
     disable('groq');
   }
+});
+
+test('upstream 429 falls back across providers and commits exactly one successful allowance',async()=>{
+  const groq=adapters.find(a=>a.id==='groq')!,nvidia=adapters.find(a=>a.id==='nvidia')!;
+  const prior=[groq.discover,groq.chat,nvidia.discover,nvidia.chat] as const;
+  try{
+    const model=(id:string)=>[{modelId:id,displayName:id,capabilities:['chat' as const],contextLength:8192,maxOutput:4096,freeStatus:'free' as const}];
+    groq.discover=async()=>model('fallback-primary');nvidia.discover=async()=>model('fallback-secondary');
+    let failures=0,successes=0;groq.chat=async()=>{failures++;throw new ProviderError('rate_limit','private',429,90000);};
+    nvidia.chat=async(_cfg,_model,req)=>{successes++;req.onToken?.('Recovered');return {text:'Recovered',promptTokens:5,completionTokens:2,finishReason:'stop',latencyMs:1,ttftMs:1,usageEstimated:false};};
+    process.env.GROQ_API_KEY='fixture';process.env.NVIDIA_API_KEY='fixture';process.env.SWARM_STANDARD_MODELS='groq:fallback-primary,nvidia:fallback-secondary';(globalThis as any).swarmWeb.models.clear();
+    const c=await(await request('conversations','POST',{})).json();
+    const response=await request(`conversations/${c.id}/stream`,'POST',{action:'send',prompt:'Hello',providerId:'auto',modelId:'auto',mode:'chat'});
+    const events=await response.text();assert(events.includes('event: done'));assert(events.includes('Recovered'));assert.equal(successes,1);assert.equal(failures,1);
+  }finally{[groq.discover,groq.chat,nvidia.discover,nvidia.chat]=prior;delete process.env.NVIDIA_API_KEY;delete process.env.GROQ_API_KEY;}
 });

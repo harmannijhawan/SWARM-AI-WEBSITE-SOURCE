@@ -1,3 +1,4 @@
+import {cooldownMs,fallbackOrder,providerWideFailure} from './routing-reliability';
 import { accountUsage, fingerprint, managedTransaction, initializeAccount, ManagedError, planCatalog, reserveUsage, settleUsage, saveManagedPreferences } from './entitlements';
 import { cashfreeWebhook, checkoutAvailable, createCheckout, verifyOrder, cashfreeEnvironment } from './cashfree';
 import { modelPolicy, managedCredentials, eligibleModelIds, routingPolicy, safeProviderFailure, validateManagedMessages } from './managed-providers';
@@ -29,7 +30,7 @@ function state():State {
   // Validate configuration at startup
   const configIssues = validateConfiguration();
   logConfigurationIssues(configIssues);
-  throwIfConfigurationInvalid(configIssues);
+  // Optional provider/billing configuration must never disable account/history APIs.
   
   const cloud=process.env.SWARM_DATABASE_URL||process.env.DATABASE_URL;
   const dir=process.env.SWARM_DATA_DIR||join(process.cwd(),'.swarm-web');
@@ -193,8 +194,11 @@ async function routeHealth(owner:string,id:string):Promise<RouteHealth|undefined
 async function recordRoute(owner:string,id:string,ok:boolean,latency:number,tokens=0,error?:unknown) {
   owner='swarm-managed';
   const old=(await routeHealth(owner,id))||{calls:0,successes:0,consecutiveFailures:0,latencyMs:null,cooldownUntil:0,tokensPerSec:null};
-  const value:RouteHealth={calls:old.calls+1,successes:old.successes+(ok?1:0),consecutiveFailures:ok?0:old.consecutiveFailures+1,latencyMs:ok?latency:old.latencyMs,tokensPerSec:ok&&latency?tokens/(latency/1000):old.tokensPerSec,cooldownUntil:ok?0:Date.now()+(error instanceof ProviderError&&['auth','quota'].includes(error.kind)?300000:60000)};
+  const value:RouteHealth={calls:old.calls+1,successes:old.successes+(ok?1:0),consecutiveFailures:ok?0:old.consecutiveFailures+1,latencyMs:ok?latency:old.latencyMs,tokensPerSec:ok&&latency?tokens/(latency/1000):old.tokensPerSec,cooldownUntil:ok?0:Date.now()+cooldownMs(error)};
   await state().db.prepare('INSERT OR REPLACE INTO routing_health(owner,id,data) VALUES(?,?,?)').run(owner,id,JSON.stringify(value));
+  if(providerWideFailure(error)){const prefix=id.split(':')[0]+':';for(const modelId of Object.values(modelPolicy()).flat().filter(id=>id.startsWith(prefix)))await state().db.prepare('INSERT OR REPLACE INTO routing_health(owner,id,data) VALUES(?,?,?)').run(owner,modelId,JSON.stringify(value));}
+  healthCache=null;
+  if(error instanceof ProviderError&&error.kind==='auth')console.warn('swarm.provider.alert',{provider:id.split(':')[0],code:'authentication',action:'Check backend credentials'});
 }
 const providerError = safeProviderFailure;
 async function streamChat(request:Request,owner:string,id:string,raw:Record<string,unknown>):Promise<Response> {
@@ -279,14 +283,14 @@ async function streamChatWithBudget(request:Request,owner:string,id:string,raw:R
         performanceTracker.recordTimestamp(perfId, 'routingCompleted');
         
         let lastError:unknown;const skip=new Set<string>();let attempts=0;
-        for(const pick of ranked){
-          if(skip.has(pick.providerId))continue;if(attempts++>=Math.min(8,Math.max(1,(preferences.routing?.maxFallbacks??3)+1)))break;
+        for(const pick of fallbackOrder(ranked)){
+          if(skip.has(pick.providerId))continue;if(attempts++>=16)break;
           const candidate=adapters.find(a=>a.id===pick.providerId)!;const cfg=await credentials(owner,pick.providerId);if(!cfg)continue;
           abort.signal.throwIfAborted();attempt++;const started=Date.now();routedModel=pick;event('model',{modelId:pick.modelId,providerId:pick.providerId,displayName:pick.displayName,providerName:pick.providerName,automatic});
           performanceTracker.recordTimestamp(perfId, 'providerRequestStarted');
           
           try {
-            const result=await candidate.chat(cfg,pick.modelId,{messages,reasoningEffort:policy.reasoningEffort,signal:abort.signal,maxTokens:streaming?Math.min(preferences.ai?.maxOutputTokens??4096,4096):1800,temperature:preferences.ai?.temperature??0.4,stream:streaming,firstTokenTimeoutMs:Math.min(60000,budget.remaining()),totalTimeoutMs:Math.min(180000,budget.remaining()),onToken:streaming?token=>{
+            const result=await candidate.chat(cfg,pick.modelId,{messages,reasoningEffort:policy.reasoningEffort,signal:abort.signal,maxTokens:streaming?Math.min(preferences.ai?.maxOutputTokens??4096,4096):1800,temperature:preferences.ai?.temperature??0.4,stream:streaming,firstTokenTimeoutMs:Math.min(policy.routing==='fastest'?10000:20000,budget.remaining()),totalTimeoutMs:Math.min(60000,budget.remaining()),onToken:streaming?token=>{
               if (!performanceTracker.getMetrics(perfId)?.firstTokenReceived) {
                 performanceTracker.recordTimestamp(perfId, 'firstTokenReceived');
               }
@@ -300,7 +304,7 @@ async function streamChatWithBudget(request:Request,owner:string,id:string,raw:R
             await recordRoute(owner,pick.id,true,result.latencyMs,result.completionTokens);return result;
           }catch(error){
             if(abort.signal.aborted)throw error;lastError=error;await recordRoute(owner,pick.id,false,Date.now()-started,0,error);
-            if(!automatic)throw error;if(error instanceof ProviderError&&['auth','quota','network','rate_limit'].includes(error.kind))skip.add(pick.providerId);
+            if(!automatic)throw error;if(providerWideFailure(error))skip.add(pick.providerId);
             if(streaming){content='';event('reset',{});}event('routing',{status:'fallback',message:'Trying another available model…'});
           }
         }
@@ -362,10 +366,11 @@ async function managedComplete(request:Request,owner:string,raw:Record<string,un
   const operationId=raw.operationId,requestId=raw.requestId,hash=fingerprint(raw);
   const policy=await routingPolicy(db,owner),usage=await accountUsage(db,owner);
   if(raw.needs!==undefined&&(!Array.isArray(raw.needs)||raw.needs.some(n=>!['chat','coding','reasoning','vision','fast','long_context','tools'].includes(String(n)))))throw new ManagedError(400,'capabilities','Invalid model capabilities.');
-  const needs=[...(raw.needs as string[]||[]),...(messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==='image'))?['vision']:[])];
+  const needs=[...(raw.needs as string[]||[]),...(raw.json===true?['json']:[]),...(messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==='image'))?['vision']:[])];
   const purpose=['plan','research','design','architecture','code','review','vision','classify','summarize','test'].includes(String(raw.purpose))?raw.purpose as Purpose:'code';
   const models=(await modelList(owner)).models.filter(m=>policy.ids.includes(m.id)&&needs.every(n=>m.capabilities?.includes(n as Capability))&&(!raw.pinned||raw.pinned===m.id));
-  const ranks=rankAutomatic(models,'',()=>undefined,messages.reduce((n,m)=>n+(typeof m.content==='string'?Math.ceil(m.content.length/4):m.content.reduce((total,p)=>total+(p.type==='text'?Math.ceil(p.text.length/4):800),0)),0),purpose,{ai:{routing:policy.routing,freeMode:false}});
+  const health=await getRoutingHealthBatch(owner);
+  const ranks=rankAutomatic(models,'',id=>health.get(id),messages.reduce((n,m)=>n+(typeof m.content==='string'?Math.ceil(m.content.length/4):m.content.reduce((total,p)=>total+(p.type==='text'?Math.ceil(p.text.length/4):800),0)),0),purpose,{ai:{routing:policy.routing,freeMode:false}});
   if(!ranks.length)throw new ManagedError(503,'no_provider','No eligible SWARM backend model is available.');
   const cached=await managedTransaction(db,owner,async()=>{
     const previous=await db.prepare('SELECT fingerprint,result FROM inference_requests WHERE owner=? AND id=?').get(owner,requestId);
@@ -383,15 +388,15 @@ async function managedComplete(request:Request,owner:string,raw:Record<string,un
   if(cached)return cached;
   try {
     const skip=new Set<string>();let last:unknown;const signal=AbortSignal.any([request.signal,AbortSignal.timeout(180000)]);
-    for(const pick of ranks.slice(0,3)){
+    for(const pick of fallbackOrder(ranks).slice(0,16)){
       if(skip.has(pick.providerId))continue;const adapter=adapters.find(a=>a.id===pick.providerId)!;const config=managedCredentials(pick.providerId);if(!config)continue;
       try{
-        const result=await adapter.chat(config,pick.modelId,{messages,reasoningEffort:policy.reasoningEffort,maxTokens:Math.min(4096,Math.max(128,Number(raw.maxTokens)||4096)),temperature:0.3,signal,stream:false,json:raw.json===true,firstTokenTimeoutMs:45000,totalTimeoutMs:180000});
+        const result=await adapter.chat(config,pick.modelId,{messages,reasoningEffort:policy.reasoningEffort,maxTokens:Math.min(4096,Math.max(128,Number(raw.maxTokens)||4096)),temperature:0.3,signal,stream:false,json:raw.json===true,firstTokenTimeoutMs:20000,totalTimeoutMs:45000});
         if(!result.text.trim())throw new ProviderError('invalid','Empty response');
         const response={result,model:pick};
         await managedTransaction(db,owner,async()=>{await settleUsage(db,owner,operationId,true);await db.prepare('UPDATE inference_requests SET result=? WHERE owner=? AND id=?').run(JSON.stringify(response),owner,requestId);});
         return response;
-      }catch(error){last=error;if(signal.aborted)break;if(error instanceof ProviderError&&['auth','quota','rate_limit'].includes(error.kind))skip.add(pick.providerId);}
+      }catch(error){last=error;if(signal.aborted)break;await recordRoute(owner,pick.id,false,0,0,error);if(providerWideFailure(error))skip.add(pick.providerId);}
     }
     throw new ManagedError(503,'provider_unavailable',safeProviderFailure(last));
   }finally{await db.prepare('UPDATE managed_operations SET active=active-1 WHERE owner=? AND id=?').run(owner,operationId);}
@@ -405,12 +410,14 @@ async function handleApiInner(request:Request,path:string[]):Promise<Response> {
     // Performance metrics endpoint (requires authentication)
     if(path.join('/')==='performance/metrics'&&request.method==='GET'){
       owner=await ownerFor(request);
+      if(!(process.env.SWARM_OPERATOR_IDS||'').split(',').map(s=>s.trim()).includes(owner))throw new ManagedError(403,'operator_required','Operator access required.');
       const windowMs = Number(new URL(request.url).searchParams.get('window')) || 600000;
       const aggregate = performanceTracker.getAggregateMetrics(windowMs);
       return json({ aggregate, timestamp: Date.now() });
     }
     if(path.join('/')==='performance/export'&&request.method==='GET'){
       owner=await ownerFor(request);
+      if(!(process.env.SWARM_OPERATOR_IDS||'').split(',').map(s=>s.trim()).includes(owner))throw new ManagedError(403,'operator_required','Operator access required.');
       return new Response(performanceTracker.exportMetrics(), {
         headers: { 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="swarm-performance-${Date.now()}.json"` }
       });
@@ -425,14 +432,14 @@ async function handleApiInner(request:Request,path:string[]):Promise<Response> {
     if(owner&&path.join('/')==='account/entitlements'&&method==='GET'){
       const usage=await accountUsage(state().db,owner),policy=modelPolicy(),models=(await modelList(owner)).models;
       const available=(ids:string[])=>models.some(m=>ids.includes(m.id));
-      return json({...usage,catalog:planCatalog(),checkoutAvailable:checkoutAvailable(),billingMode:cashfreeEnvironment().mode,profiles:[{id:'swe',name:'SWARM SWE',eligible:true,available:available(policy.standard)},{id:'flash',name:'SWARM SWE Fast',eligible:usage.plan.premium,available:available(policy.standard)},{id:'premium',name:'SWARM Premium',eligible:usage.plan.premium,available:available(policy.premium)}]});
+      return json({...usage,catalog:planCatalog(),checkoutAvailable:checkoutAvailable(),checkoutMaxAvailable:checkoutAvailable('max'),billingMode:cashfreeEnvironment().mode,profiles:[{id:'swe',name:'SWARM SWE',eligible:true,available:available(policy.standard)},{id:'flash',name:'SWARM SWE Fast',eligible:usage.plan.premium,available:available(policy.fast)},{id:'premium',name:'SWARM Premium',eligible:usage.plan.premium,available:available(policy.premium)},{id:'max',name:'SWARM Max',eligible:usage.plan.id==='max',available:available(policy.max)}]});
     }
     if(owner&&path.join('/')==='account/model-preferences'&&method==='POST'){const b=await bodyFor(request);
       if(typeof b.profile!=='string'||typeof b.speed!=='string'||!['swe','flash','premium'].includes(b.profile)||!['fast','balanced','quality'].includes(b.speed))throw new ManagedError(400,'preferences','Choose a supported model profile and generation mode.');
       if(b.profile==='premium'&&!(await accountUsage(state().db,owner)).plan.premium)throw new ManagedError(403,'premium_required','SWARM Premium requires Pro.');
 const policy=modelPolicy();const ids=b.profile==='premium'?policy.premium:policy.standard;if(!(await modelList(owner)).models.some(m=>ids.includes(m.id)))throw new ManagedError(503,'model_unavailable','This SWARM profile is not currently configured.');return json(await saveManagedPreferences(state().db,owner,b.profile,b.speed));}
     if(owner&&path[0]==='billing'){
-      if(path[1]==='checkout'&&method==='POST'){const b=await bodyFor(request);if(b.plan!=='pro'||b.amount!==undefined)throw new ManagedError(400,'plan','Choose the configured Pro plan.');return json(await createCheckout(state().db,owner,b.requestId,b.phone));}
+      if(path[1]==='checkout'&&method==='POST'){const b=await bodyFor(request);if(!['pro','max'].includes(String(b.plan))||b.amount!==undefined)throw new ManagedError(400,'plan','Choose Pro or Max.');return json(await createCheckout(state().db,owner,b.requestId,b.phone,b.plan as 'pro'|'max'));}
       if(path[1]==='verify'&&method==='POST'){const b=await bodyFor(request);if(typeof b.orderId!=='string')throw new ManagedError(400,'order','Choose a payment order.');return json(await verifyOrder(state().db,owner,b.orderId));}
       if(path[1]==='history'&&method==='GET')return json({transactions:await state().db.prepare('SELECT id,amount,days,status,payment,created,fulfilled FROM payment_orders WHERE owner=? ORDER BY created DESC').all(owner)});
     }

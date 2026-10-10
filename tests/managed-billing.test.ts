@@ -83,7 +83,7 @@ function gateway(t:any) {
   });
   return {orders,requests};
 }
-const paid=(remote:Remote)=>{remote.status='PAID';remote.payments=[{payment_status:'SUCCESS',payment_currency:'INR',payment_amount:699,cf_payment_id:'fixture-payment'}];};
+const paid=(remote:Remote)=>{remote.status='PAID';remote.payments=[{payment_status:'SUCCESS',payment_currency:'INR',payment_amount:remote.amount,cf_payment_id:'fixture-payment'}];};
 function webhook(id:string,valid=true){
   const raw=JSON.stringify({type:'PAYMENT_SUCCESS_WEBHOOK',data:{order:{order_id:id}}}),timestamp=String(Date.now());
   const signature=createHmac('sha256',process.env.CASHFREE_SANDBOX_CLIENT_SECRET!).update(timestamp+raw).digest('base64');
@@ -157,4 +157,15 @@ test('success notification waits for authoritative confirmation and can be retri
 test('managed schema maps safely to existing Postgres namespace',()=>{
   assert.match(postgresSql('SELECT pro_until FROM entitlements WHERE owner=?'),/swarm_entitlements WHERE owner=\$1/);
   assert.match(postgresSql('INSERT OR IGNORE INTO payment_events VALUES(?,?,?)'),/swarm_payment_events VALUES\(\$1,\$2,\$3\) ON CONFLICT DO NOTHING/);
+});
+
+test('Max checkout is exactly INR 2000 and only verified payment grants Max, idempotently',async t=>{
+  process.env.SWARM_MAX_BUILDS='20';process.env.SWARM_MAX_CHATS='100';
+  const db=fresh(),cf=gateway(t);try{
+    const order=await createCheckout(db,'maxbuyer','max-checkout','9999999999','max');
+    assert.equal(cf.requests[0].body.order_amount,2000);assert.equal((await accountUsage(db,'maxbuyer')).plan.id,'free');
+    await assert.rejects(createCheckout(db,'maxbuyer','max-checkout','9999999999','pro'),{code:'checkout_plan'});
+    paid(cf.orders.get(order.orderId)!);await verifyOrder(db,'maxbuyer',order.orderId);const usage=await accountUsage(db,'maxbuyer');assert.equal(usage.plan.id,'max');assert.equal(usage.account.pro_until,0);
+    await verifyOrder(db,'maxbuyer',order.orderId);assert.equal((await accountUsage(db,'maxbuyer')).maxUntil,usage.maxUntil);
+  }finally{await db.close();delete process.env.SWARM_MAX_BUILDS;delete process.env.SWARM_MAX_CHATS;}
 });

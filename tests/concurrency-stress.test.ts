@@ -9,6 +9,9 @@ process.env.SWARM_DATA_DIR = mkdtempSync(join(tmpdir(), 'swarm-concurrency-stres
 import { Storage } from '../lib/server/storage';
 import { initializeAccount, reserveUsage, settleUsage, accountUsage } from '../lib/server/entitlements';
 
+process.env.SWARM_FREE_BUILDS='1';
+process.env.SWARM_FREE_CONCURRENCY='100';
+process.env.SWARM_HOURLY_REQUESTS='1000';
 const fresh = () => new Storage(':memory:');
 
 test('CONCURRENCY: 50 parallel requests from single user respects quota limit', async () => {
@@ -142,14 +145,14 @@ test('CONCURRENCY: high contention maintains data integrity', async () => {
     assert.equal(failed.length, 98);
     
     // Verify database integrity - check ledger
-    const ledgerCount = db.prepare(
+    const ledgerCount = await db.prepare(
       'SELECT COUNT(*) as count FROM usage_ledger WHERE owner=? AND state IN (?, ?)'
     ).get('alice', 'reserved', 'consumed') as any;
     
     assert.equal(ledgerCount.count, 2, 'Ledger should have exactly 2 entries');
     
     // Check no duplicate IDs
-    const uniqueIds = db.prepare(
+    const uniqueIds = await db.prepare(
       'SELECT COUNT(DISTINCT id) as count FROM usage_ledger WHERE owner=?'
     ).get('alice') as any;
     
@@ -216,11 +219,11 @@ test('CONCURRENCY: settlement race conditions handled correctly', async () => {
     assert.equal(usage.chats.used, 1, 'Only successful request should count');
     
     // Check ledger states
-    const consumed = db.prepare(
+    const consumed = await db.prepare(
       'SELECT COUNT(*) as count FROM usage_ledger WHERE owner=? AND state=?'
     ).get('alice', 'consumed') as any;
     
-    const failed = db.prepare(
+    const failed = await db.prepare(
       'SELECT COUNT(*) as count FROM usage_ledger WHERE owner=? AND state=?'
     ).get('alice', 'failed') as any;
     
@@ -267,8 +270,8 @@ test('CONCURRENCY: stress test with mixed operations', async () => {
       assert.ok(usage.chats.used <= (usage.chats.limit || 0), `${user} usage should not exceed limit`);
       
       // Verify ledger consistency
-      const ledger = db.prepare(
-        'SELECT COUNT(*) as reserved, SUM(CASE WHEN state="consumed" THEN 1 ELSE 0 END) as consumed FROM usage_ledger WHERE owner=?'
+      const ledger = await db.prepare(
+        "SELECT COUNT(*) as reserved, SUM(CASE WHEN state='consumed' THEN 1 ELSE 0 END) as consumed FROM usage_ledger WHERE owner=?"
       ).get(user) as any;
       
       assert.ok(ledger.consumed <= (usage.chats.limit || 0), `${user} consumed should not exceed limit`);

@@ -3,8 +3,8 @@ import { Storage } from './storage';
 import { initializeAccount, managedTables, managedTransaction, ManagedError, planCatalog } from './entitlements';
 
 type Order = { id: string; owner: string; request_key: string; amount: number; days: number; status: string; session: string | null; payment: string | null; created: number; fulfilled: number };
-export function checkoutAvailable() {
-  const pro = planCatalog().pro;
+export function checkoutAvailable(plan: 'pro'|'max'='pro') {
+  const pro = planCatalog()[plan];
   try { const credentials=cashfreeCredentials();return !!(credentials.id && credentials.secret && pro.price && pro.builds && pro.chats && process.env.SWARM_PUBLIC_URL); } catch { return false; }
 }
 export const CASHFREE_SANDBOX_URL = 'https://sandbox.cashfree.com/pg';
@@ -51,22 +51,23 @@ async function cashfree(path: string, body?: unknown, key?: string) {
   }
   return response.json();
 }
-export async function createCheckout(db: Storage, owner: string, key: unknown, phone: unknown) {
+export async function createCheckout(db: Storage, owner: string, key: unknown, phone: unknown, plan: 'pro'|'max'='pro') {
   if (typeof key !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(key) || typeof phone !== 'string' || !/^[6-9][0-9]{9}$/.test(phone)) throw new ManagedError(400, 'checkout_input', 'Enter a valid Indian mobile number and request ID.');
-  if (!checkoutAvailable()) throw new ManagedError(503, 'billing_unavailable', 'Checkout is awaiting merchant credentials and fair-use configuration.');
+  if (!checkoutAvailable(plan)) throw new ManagedError(503, 'billing_unavailable', 'Checkout is awaiting merchant credentials and fair-use configuration.');
   const {mode}=cashfreeEnvironment();
   const origin = new URL(process.env.SWARM_PUBLIC_URL!);
   if (origin.username||origin.password||origin.search||origin.hash||origin.pathname!=='/'||(origin.protocol!=='https:'&&!(mode==='sandbox'&&origin.protocol==='http:'&&['localhost','127.0.0.1'].includes(origin.hostname)))) throw new ManagedError(503, 'billing_configuration', 'Checkout requires a valid public HTTPS origin (local HTTP is allowed only in sandbox).');
   await initializeAccount(db, owner);
   const order = await managedTransaction(db, owner, async () => {
     const existing = await db.prepare('SELECT * FROM payment_orders WHERE owner=? AND request_key=?').get(owner, key) as Order | undefined;
-    if (existing) { await assertOrderEnvironment(db,existing.id);return existing; }
+    if (existing) { const prior=await db.prepare('SELECT plan FROM payment_plans WHERE id=?').get(existing.id);if((prior?.plan||'pro')!==plan)throw new ManagedError(409,'checkout_plan','Use a new request ID to change plans.'); await assertOrderEnvironment(db,existing.id);return existing; }
     const recent = await db.prepare('SELECT COUNT(*) AS n FROM payment_orders WHERE owner=? AND created>?').get(owner, Date.now() - 3600000);
     if (Number(recent?.n) >= 5) throw new ManagedError(429, 'checkout_limit', 'Too many checkout attempts. Reuse an existing pending order.');
-    const pro = planCatalog().pro;
+    const pro = planCatalog()[plan];
     const next: Order = { id: 'swarm_' + randomUUID().replaceAll('-',''), owner, request_key: key, amount: pro.price!, days: pro.accessDays, status: 'pending', session: null, payment: null, created: Date.now(), fulfilled: 0 };
     await db.prepare('INSERT INTO payment_orders VALUES(?,?,?,?,?,?,?,?,?,?)').run(next.id, owner, key, next.amount, next.days, next.status, null, null, next.created, 0);
     await db.prepare('INSERT INTO payment_environments VALUES(?,?)').run(next.id,mode);
+    await db.prepare('INSERT INTO payment_plans VALUES(?,?)').run(next.id,plan);
     return next;
   });
   if (!order.session && order.status === 'pending') {
@@ -100,8 +101,9 @@ export async function verifyOrder(db: Storage, owner: string, id: string) {
     if (current?.fulfilled) return; // Late failures and duplicate notifications cannot undo or extend a grant.
     if (status === 'paid') {
       const account = await initializeAccount(db, owner);
-      const expires = Math.max(Date.now(), Number(account.pro_until)) + order.days * 86400000;
-      await db.prepare('UPDATE entitlements SET pro_until=? WHERE owner=?').run(expires, owner);
+      const tier=await db.prepare('SELECT plan FROM payment_plans WHERE id=?').get(id);
+      if(tier?.plan==='max'){const prior=await db.prepare('SELECT expires FROM max_entitlements WHERE owner=?').get(owner);const expires=Math.max(Date.now(),Number(prior?.expires||0))+order.days*86400000;await db.prepare('INSERT INTO max_entitlements VALUES(?,?) ON CONFLICT(owner) DO UPDATE SET expires=excluded.expires').run(owner,expires);}else{const expires = Math.max(Date.now(), Number(account.pro_until)) + order.days * 86400000;
+      await db.prepare('UPDATE entitlements SET pro_until=? WHERE owner=?').run(expires, owner);}
       await db.prepare("UPDATE payment_orders SET status='paid',payment=?,fulfilled=? WHERE id=?").run(String(paid.cf_payment_id), Date.now(), id);
     } else await db.prepare('UPDATE payment_orders SET status=? WHERE id=?').run(status, id);
   });

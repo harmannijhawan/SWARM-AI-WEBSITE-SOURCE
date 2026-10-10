@@ -191,6 +191,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
       });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
+        if(body?.code==='allowance_exhausted')window.dispatchEvent(new Event('swarm:upgrade'));
         throw new ChatStreamError(body?.error || `Request failed (${response.status})`, response.status===401?'auth':'server',response.status===429||response.status>=500);
       }
       window.dispatchEvent(new Event('swarm:usage'));
