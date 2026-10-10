@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type UIEvent } from 'react';
 import {setAuthTokenGetter,getAuthToken} from '@/lib/cloud-api/custom-fetch';
+import { SettingsWorkspace, PreferenceEffects } from './settings-workspace';
 import { AccountPanel, DesktopConnect } from './account-panel';
 import { ClerkProvider, SignIn, SignUp, Show, useClerk, useAuth } from '@clerk/react';
 
@@ -11,7 +12,7 @@ import {
   PanelLeftOpen, Pencil, Plus, Search, Settings2, ShieldCheck, Sparkles, Trash2, X, Zap,
 } from 'lucide-react';
 import {
-  getGetConversationQueryKey, getListConversationsQueryKey, getListModelsQueryKey,
+  getConversation, getGetConversationQueryKey, getListConversationsQueryKey, getListModelsQueryKey,
   getListProvidersQueryKey, useCreateConversation, useDeleteConversation, useDeleteProvider,
   useGetConversation, useListConversations, useListModels, useListProviders,
   useRenameConversation, useSaveProvider,
@@ -26,6 +27,7 @@ import { codeFiles } from '@/lib/code-files';
 import { BuildLayout, type BuildEvent } from '@/components/cloud/build-layout';
 import { ChatMarkdown } from '@/components/cloud/chat-markdown';
 import { ErrorBoundary } from '@/components/cloud/error-boundary';
+import { consumeChatStream, ChatStreamError, retryDisposition } from '@/lib/chat-stream';
 
 
 
@@ -92,7 +94,7 @@ function SignUpPage() {
   return <div className="min-h-[100dvh] grid place-items-center px-4 py-10 bg-white"><div className="w-full max-w-[440px]"><div className="mb-7 flex justify-center"><Brand /></div><SignUp fallbackRedirectUrl="/app" routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div></div>;
 }
 function Protected({ children }: { children: ReactNode }) {
-  return <><Show when="signed-in">{children}</Show><Show when="signed-out"><Redirect to="/sign-in" /></Show></>;
+  return <><Show when="signed-in"><PreferenceEffects/>{children}</Show><Show when="signed-out"><Redirect to="/sign-in" /></Show></>;
 }
 
 function SignOutButton() {
@@ -127,6 +129,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   const [agentEvents, setAgentEvents] = useState<string[]>([]);
   const [buildEvents, setBuildEvents] = useState<BuildEvent[]>([]);
   const [streamError, setStreamError] = useState('');
+  const [retryRequest, setRetryRequest] = useState<{id:string;payload:StreamConversationInput;requestId:string}|null>(null);
   const [modelId, setModelId] = useState('auto');
   const [activeModel, setActiveModel] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -160,7 +163,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   const prefill=(value:string)=>{setDraft(value);inputRef.current?.focus();};
 
 
-  useEffect(() => { setDraftMessages([]); setStreaming(''); setAgentEvents([]); setBuildEvents([]); setStreamError(''); setEditingMessage(null); }, [selectedId]);
+  useEffect(() => { setDraftMessages([]); setStreaming(''); setAgentEvents([]); setBuildEvents([]); setStreamError(''); setRetryRequest(null); setEditingMessage(null); }, [selectedId]);
   useEffect(() => {
     const start = () => { setSelectedId(null); setDraft(''); setDraftMessages([]); setStreaming(''); inputRef.current?.focus(); };
     window.addEventListener('swarm:new-chat', start);
@@ -173,8 +176,13 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   };
 
   async function streamRequest(payload: StreamConversationInput, promptLabel?: string) {
-    setBusy(true); setStreamError(''); setStreaming(''); setAgentEvents([]); setBuildEvents([]); setActiveModel('');
+    if(requestRef.current)return;
+    setBusy(true); setStreamError(''); setRetryRequest(null); setStreaming(''); setAgentEvents([]); setBuildEvents([]); setActiveModel('');
     const controller = new AbortController(); requestRef.current = controller;
+    let timedOut=false;
+    const timeout=setTimeout(()=>{timedOut=true;controller.abort();},270_000);
+    let streamId:string|undefined;
+    const clientRequestId=crypto.randomUUID();
     try {
       let id = selectedId;
       if (!id) {
@@ -183,41 +191,23 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
         void cache.invalidateQueries({ queryKey: getListConversationsQueryKey() });
       }
       idForRefresh.current = id;
+      streamId=id;
       if (payload.action === 'send' && payload.prompt) {
         setDraftMessages((current) => [...current, { id: Date.now(), role: 'user', content: payload.prompt!, createdAt: new Date().toISOString() }]);
       }
+      const authToken=await getAuthToken();
       const response = await fetch(`/api/conversations/${id}/stream`, {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream',...(await getAuthToken()?{Authorization:'Bearer '+await getAuthToken()}:{}) },
-        body: JSON.stringify(payload), signal: controller.signal,
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream',...(authToken?{Authorization:'Bearer '+authToken}:{}) },
+        body: JSON.stringify({...payload,requestId:clientRequestId}), signal: controller.signal,
       });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw new Error(body?.error || `Request failed (${response.status})`);
+        throw new ChatStreamError(body?.error || `Request failed (${response.status})`, response.status===401?'auth':'server',response.status===429||response.status>=500);
       }
       if (!response.body) throw new Error('The response stream is unavailable.');
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let done = false;
-      while (!done) {
-        const chunk = await reader.read();
-        done = chunk.done;
-        buffer += decoder.decode(chunk.value ?? new Uint8Array(), { stream: !done });
-        const blocks = buffer.split(/\r?\n\r?\n/);
-        buffer = blocks.pop() ?? '';
-        const completeBlocks = done && buffer.trim() ? [...blocks, buffer] : blocks;
-        if (done) buffer = '';
-        for (const block of completeBlocks) {
-          const dataLine = block.split(/\r?\n/).find((line) => line.startsWith('data:'));
-          if (!dataLine) continue;
-          const eventName = block.split(/\r?\n/).find((line) => line.startsWith('event:'))?.slice(6).trim() ?? '';
-          const raw = dataLine.slice(5).trim();
-          if (!raw || raw === '[DONE]') continue;
-          let event: StreamUpdate;
-          try { event = JSON.parse(raw) as StreamUpdate; } catch { event = { type: eventName || 'token', token: raw }; }
+      await consumeChatStream(response.body,controller.signal,(type,data)=>{
+          const event=data as StreamUpdate;
           const nested = event.data && typeof event.data === 'object' ? event.data as StreamUpdate : undefined;
-          const type = eventName || event.type || event.event || '';
-          if (type === 'error') throw new Error(event.error ?? nested?.error ?? 'The provider request failed.');
           if (type === 'model') {
             setActiveModel(`${event.displayName || event.modelId} · ${event.providerName || event.providerId}`);
           } else if (type === 'reset') { setStreaming('');
@@ -238,8 +228,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
           } else if (!type && (event.token || event.content || event.text)) {
             setStreaming((current) => current + (event.token ?? event.content ?? event.text ?? ''));
           }
-        }
-      }
+      });
       setDraftMessages([]);
       invalidateConversation(id);
       await cache.invalidateQueries({ queryKey: getGetConversationQueryKey(id) });
@@ -247,10 +236,28 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
       await cache.invalidateQueries({ queryKey: getListModelsQueryKey() });
       setStreaming('');
     } catch (error) {
-      if (!controller.signal.aborted) setStreamError(error instanceof Error ? error.message : 'Unable to complete the response.');
+      if (!controller.signal.aborted||timedOut) {
+        setStreamError(timedOut?'This request reached its time limit. Your message is saved.':error instanceof ChatStreamError?error.message:'The connection was lost. Reconnect and try again.');
+        if(payload.prompt)setDraft(current=>current||payload.prompt!);
+        if(streamId&&payload.action!=='continue'&&(!(error instanceof ChatStreamError)||error.retryable))setRetryRequest({id:streamId,payload,requestId:clientRequestId});
+      }
       if (idForRefresh.current) invalidateConversation(idForRefresh.current);
       setDraftMessages([]);
-    } finally { requestRef.current = null; setBusy(false); }
+    } finally { clearTimeout(timeout);requestRef.current = null; setBusy(false); }
+  }
+
+  async function retryFailedResponse() {
+    if(!retryRequest||busy)return;
+    const {id,payload,requestId}=retryRequest;
+    try {
+      const conversation=await cache.fetchQuery({queryKey:getGetConversationQueryKey(id),queryFn:({signal})=>getConversation(id,{signal}),staleTime:0});
+      const saved=conversation as Conversation;
+      const disposition=retryDisposition(saved.messages,payload.action,requestId,payload.messageId);
+      if(disposition.type==='restore'){setStreamError('Your message is in the input. Send it when you are connected.');setRetryRequest(null);return;}
+      if(disposition.type==='complete'){cache.setQueryData(getGetConversationQueryKey(id),saved);setStreamError('');setRetryRequest(null);setStreaming('');setDraft(current=>current===payload.prompt?'':current);return;}
+      setDraft(current=>current===payload.prompt?'':current);
+      void streamRequest({...payload,action:'regenerate',messageId:disposition.messageId});
+    }catch {setStreamError('Still unable to reconnect. Your message and history are preserved.');}
   }
 
   function submit(event?: FormEvent) {
@@ -325,7 +332,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
       </div>
       <div className="desktop-composer-wrap shrink-0 bg-background px-4 pb-4 pt-3 md:px-8">
         <div className="mx-auto max-w-[760px]">
-          {streamError && <div data-testid="status-stream-error" role="alert" className="mb-2 flex items-center justify-between rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">{streamError}<button aria-label="Dismiss error" onClick={() => setStreamError('')}><X size={14} /></button></div>}
+          {streamError && <div data-testid="status-stream-error" role="alert" className="mb-2 flex items-center justify-between rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive"><span>{streamError}</span>{retryRequest&&<button disabled={busy} className="ml-3 font-bold underline" onClick={()=>void retryFailedResponse()}>Retry</button>}<button aria-label="Dismiss error" onClick={() => setStreamError('')}><X size={14} /></button></div>}
           {editingMessage && <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">Editing your message<button data-testid="button-cancel-edit" onClick={() => { setEditingMessage(null); setDraft(''); }} className="font-semibold text-foreground">Cancel</button></div>}
           <form data-testid="form-chat-composer" onSubmit={submit} className="rounded-2xl border border-border bg-card p-3 shadow-[0_8px_28px_rgba(16,17,20,.06)] focus-within:border-[#aaaaaa]">
             <textarea ref={inputRef} data-testid="input-chat-prompt" aria-label="Message SWARM" rows={2} maxLength={32000} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} placeholder={validModels.length ? (mode==='swarm'?'What do you want to build?':'Ask SWARM anything…') : 'Connect a provider to start a conversation…'} disabled={!validModels.length || busy} className="min-h-[52px] max-h-48 w-full resize-y bg-transparent px-2 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60" />
@@ -363,7 +370,7 @@ const providerDescriptions: Record<string,string> = {
   mistral: 'Use Mistral models with your API key.',
 };
 
-function SettingsPage() { return <PrivateShell><AccountPanel /><ProviderSettings /></PrivateShell>; }
+function SettingsPage() { return <PrivateShell><SettingsWorkspace providers={<ProviderSettings/>}/></PrivateShell>; }
 function ProviderSettings() {
   const cache = useQueryClient();
   const { data: providerResponse, isLoading, isError, refetch } = useListProviders();

@@ -1,0 +1,82 @@
+/* SWARM motion language. Visual feedback never gates application work. */
+:root {
+  --motion-stagger: 20ms;
+  --motion-instant: 80ms;
+  --motion-fast: 140ms;
+  --motion-normal: 220ms;
+  --motion-slow: 360ms;
+  --motion-spring: 420ms;
+  --motion-emphasis: 520ms;
+  --motion-ambient: 1800ms;
+  --ease-out: cubic-bezier(.2,.8,.2,1);
+  --ease-spring: cubic-bezier(.2,1.35,.35,1);
+  --ease-calm: cubic-bezier(.4,0,.2,1);
+}
+@keyframes motion-arrive { from { opacity:0; translate:0 4px; } to { opacity:1; translate:0 0; } }
+@keyframes motion-ack { 35% { scale:.96; } 70% { scale:1.025; } }
+@keyframes motion-success { 35% { scale:1.12; } 70% { scale:.98; } }
+@keyframes motion-error { 25%,75% { translate:-2px 0; } 50% { translate:2px 0; } }
+@keyframes motion-breathe { 50% { opacity:.5; } }
+@keyframes motion-signal { from { offset-distance:0%; opacity:0; } 12%,85% { opacity:1; } to { offset-distance:100%; opacity:0; } }
+button, a, input, textarea, select, [role="separator"] {
+  transition-property:color, background-color, border-color, opacity, box-shadow, scale;
+  transition-duration:var(--motion-fast);
+  transition-timing-function:var(--ease-out);
+}
+button:enabled:active { scale:.98; }
+button:focus-visible, a:focus-visible, [role="separator"]:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+button:disabled { cursor:default; }
+button svg { transition:rotate var(--motion-fast) var(--ease-out), scale var(--motion-fast) var(--ease-spring); }
+button:enabled:hover > svg { scale:1.04; }
+[role="switch"] > span { transition:transform var(--motion-normal) var(--ease-spring); }
+[role="tab"], [role="radio"] { transition-duration:var(--motion-instant); }
+.swarm-startup > aside, .swarm-startup > nav, .swarm-startup > main > header { animation:motion-arrive var(--motion-slow) var(--ease-out) both; }
+.chat-brand img, .swarm-wake { animation:motion-arrive var(--motion-spring) var(--ease-out) both; }
+.motion-page, .anim-fade, .motion-arrive { animation:motion-arrive var(--motion-normal) var(--ease-out) both; }
+.anim-pop, [role="dialog"], [role="menu"], [role="tooltip"], .chat-dialog, .build-agent-panel { animation:motion-arrive var(--motion-fast) var(--ease-out) both; }
+.anim-pulse { animation:motion-breathe var(--motion-ambient) var(--ease-calm) infinite; }
+.anim-spin, .animate-spin { animation-duration:calc(var(--motion-slow) * 3); }
+.edge-live { animation-duration:var(--motion-ambient); }
+.sweep::after { animation-duration:var(--motion-ambient); }
+.motion-meter, .workforce-progress i { transform-origin:left; transition:transform var(--motion-slow) var(--ease-out); }
+.motion-composer, .chat-composer, .run-chat-composer > div { transition:border-color var(--motion-fast), box-shadow var(--motion-normal), translate var(--motion-normal) var(--ease-out); }
+.motion-composer:focus-within, .chat-composer:focus-within, .run-chat-composer > div:focus-within { translate:0 -1px; border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 9%,transparent); }
+.motion-sent .chat-send, .motion-sent [aria-label="Send"], .motion-sent [aria-label="Run"] { animation:motion-ack var(--motion-spring) var(--ease-spring); }
+.chat-attach, .chat-file, .chat-attachments > *, .motion-composer > div > span { transition:scale var(--motion-fast) var(--ease-spring); }
+.chat-attach:hover { scale:1.06; }
+.chat-file, .chat-attachments > * { animation:motion-arrive var(--motion-fast) var(--ease-out); }
+.chat-message[data-status="streaming"] .chat-message-label > span, .chat-stream > span { animation:motion-breathe var(--motion-ambient) var(--ease-calm) infinite; }
+.chat-message[data-status="streaming"] .chat-actions { visibility:hidden; }
+.chat-message[data-status="complete"] .chat-actions { animation:motion-arrive var(--motion-normal) var(--ease-out); }
+.chat-error, [data-motion-state="failed"] > svg { animation:motion-error var(--motion-slow) var(--ease-out); }
+.workforce-position { position:absolute; transition:transform var(--motion-slow) var(--ease-out); }
+.workforce-node { transition:border-color var(--motion-fast), background-color var(--motion-fast), scale var(--motion-fast); animation:motion-arrive var(--motion-normal) var(--ease-out) both; }
+.workforce-node:hover { scale:1.01; }
+.workforce-node[data-motion-state="working"], .workforce-node[data-motion-state="planning"] { border-color:color-mix(in srgb,var(--accent) 45%,var(--line)); }
+[data-motion-state="completed"] .workforce-icon, [data-motion-state="passed"] > svg { animation:motion-success var(--motion-spring) var(--ease-spring); }
+[data-motion-state="failed"] .workforce-icon, [data-motion-state="blocked"] .workforce-icon { animation:motion-error var(--motion-slow) var(--ease-out); }
+.graph-signal { fill:var(--accent); offset-rotate:0deg; animation:motion-signal var(--motion-emphasis) var(--ease-calm) both; }
+.run-chat-event { animation:motion-arrive var(--motion-normal) var(--ease-out) both; }
+.run-chat-event[data-kind="graph_updated"] svg { animation:motion-success var(--motion-spring) var(--ease-spring); }
+.motion-task { animation:motion-arrive var(--motion-normal) var(--ease-out) both; animation-delay:var(--arrival-delay,0ms); }
+.motion-task[data-motion-state="completed"] svg { animation:motion-success var(--motion-spring) var(--ease-spring); }
+.motion-project, .motion-model { transition:background-color var(--motion-fast),border-color var(--motion-fast); }
+.motion-project:hover { background:var(--hover); }
+.motion-runtime[data-state="running"] > svg { animation:motion-breathe var(--motion-ambient) var(--ease-calm) infinite; }
+.motion-runtime[data-state="completed"] > svg { animation:motion-success var(--motion-spring) var(--ease-spring); }
+[role="separator"]:hover, [role="separator"]:focus-visible { background:var(--accent-soft); }
+/* Hidden persistent views must not keep decorative timelines running. */
+.hidden *, .hidden *::before, .hidden *::after { animation-play-state:paused !important; }
+@media (prefers-reduced-motion:reduce) {
+  *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+  .graph-signal { display:none; }
+}
+.no-anim *, .no-anim *::before, .no-anim *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+.no-anim .graph-signal { display:none; }
+
+.swarm-startup, .chat-sidebar, .chat-workspace, .build-workspace { transition:background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out); }
+.motion-runtime { display:inline-flex; align-items:center; gap:5px; }
+[data-platform="cli"] .motion-runtime[data-state="running"] > svg { animation-timing-function:steps(2,end); }
+.motion-model[data-health="rate_limited"] { color:var(--warn); }
+.motion-model[data-health="unavailable"] { opacity:.65; }
+[data-motion-state="passed"] .motion-gate > svg { animation:motion-success var(--motion-spring) var(--ease-spring); }

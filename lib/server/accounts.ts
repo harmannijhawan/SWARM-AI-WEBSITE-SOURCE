@@ -1,3 +1,4 @@
+import {validatePreferences} from '../../shared/preferences';
 import {Storage} from './storage';
 type AccountDb=DatabaseSync|Storage;
 import { createHash, randomBytes } from 'node:crypto';
@@ -24,8 +25,16 @@ export async function issueDevice(db:AccountDb,owner:string,name:string) {
   await db.prepare('INSERT INTO device_sessions VALUES(?,?,?,?)').run(hash(token),owner,name.slice(0,100),Date.now()+30*86400000);return token;
 }
 export async function accountProfile(db:AccountDb,owner:string) {
-  await accountTables(db);return (await db.prepare('SELECT id,email,role FROM accounts WHERE id=?').get(owner))||{id:owner,email:null,role:'member'};
+  await accountTables(db);const profile=(await db.prepare('SELECT id,email,role FROM accounts WHERE id=?').get(owner))||{id:owner,email:null,role:'member'};return {...profile,...await identity(owner)};
 }
+const identityCache=new Map<string,{at:number;name:string|null;avatar:string|null;email:string|null}>();
+async function identity(owner:string){
+  if(!process.env.CLERK_SECRET_KEY)return {};
+  const cached=identityCache.get(owner);if(cached&&Date.now()-cached.at<60000)return cached;
+  const {createClerkClient}=await import('@clerk/backend');const user=await createClerkClient({secretKey:process.env.CLERK_SECRET_KEY}).users.getUser(owner);
+  const value={at:Date.now(),name:[user.firstName,user.lastName].filter(Boolean).join(' ')||user.username,avatar:user.imageUrl,email:user.emailAddresses.find(e=>e.id===user.primaryEmailAddressId)?.emailAddress||null};identityCache.set(owner,value);return value;
+}
+
 type Deps={db:AccountDb;readKey:(owner:string,id:string)=>{apiKey:string;accountId?:string|null}|null|Promise<{apiKey:string;accountId?:string|null}|null>;writeKey:(owner:string,id:string,key:string|null,accountId?:string|null)=>void|Promise<void>;providers:string[];active:Set<string>};
 export async function accountApi(req:Request,path:string[],owner:string|null,d:Deps):Promise<Response|null> {
   if(path[0]!=='account')return null;await accountTables(d.db);
@@ -39,18 +48,27 @@ export async function accountApi(req:Request,path:string[],owner:string|null,d:D
     const grant=await d.db.prepare('SELECT * FROM device_grants WHERE code=? AND expires>?').get(hash(body.code),Date.now()) as {owner:string;challenge:string}|undefined;
     if(!grant||createHash('sha256').update(body.verifier).digest('base64url')!==grant.challenge)return fail('Connection expired or invalid.',401);
     const claimed=await d.db.prepare('DELETE FROM device_grants WHERE code=? RETURNING owner').get(hash(body.code));if(!claimed)return fail('Connection expired or invalid.',401);
-    return json({token:await issueDevice(d.db,grant.owner,'SWARM desktop'),account:await accountProfile(d.db,grant.owner)});
+    return json({token:await issueDevice(d.db,grant.owner,'SWARM device'),account:await accountProfile(d.db,grant.owner)});
   }
   if(!owner)return fail('Sign in to continue.',401);
+  if(path[1]==='preferences') {
+    const read=async()=>{const row=await d.db.prepare('SELECT data FROM account_documents WHERE owner=? AND id=?').get(owner,'preferences') as {data:string}|undefined;const preferences=row?JSON.parse(row.data):{};return {preferences,version:row?hash(row.data):null};};
+    if(req.method==='GET'){const current=await read();if(current.preferences.providers)delete current.preferences.providers.baseUrls;return json(current);}
+    if(req.method==='POST'){let preferences;try{preferences=validatePreferences(body.preferences);}catch{return fail('Invalid or unsupported preferences.');}
+      await d.db.exec('BEGIN IMMEDIATE');if(d.db instanceof Storage)await d.db.lockOwner(owner);
+      try{const current=await read();if(current.version!==body.version){await d.db.exec('ROLLBACK');return json({error:'Preferences changed on another device. Reload before saving.',...current},409);}
+      await d.db.prepare('INSERT OR REPLACE INTO account_documents VALUES(?,?,?)').run(owner,'preferences',JSON.stringify(preferences));await d.db.exec('COMMIT');return json(await read());}catch{await d.db.exec('ROLLBACK');return fail('Preferences could not be saved.',500);}
+    }
+  }
   if(path[1]==='profile'&&req.method==='GET')return json(await accountProfile(d.db,owner));
   if(path[1]==='devices'&&req.method==='GET')return json({devices:await d.db.prepare('SELECT hash AS id,name,expires FROM device_sessions WHERE owner=? AND expires>?').all(owner,Date.now())});
   if(path[1]==='revoke'&&req.method==='POST') {
     if(typeof body.id!=='string')return fail('Choose a device.');await d.db.prepare('DELETE FROM device_sessions WHERE hash=? AND owner=?').run(body.id,owner);return json({ok:true});
   }
-  if(path[1]==='desktop-authorizations'&&req.method==='POST') {
+  if((path[1]==='desktop-authorizations'||path[1]==='android-authorizations')&&req.method==='POST') {
     if(typeof body.challenge!=='string'||! /^[A-Za-z0-9_-]{43}$/.test(body.challenge)||typeof body.state!=='string'||! /^[A-Za-z0-9_-]{32,128}$/.test(body.state))return fail('Invalid desktop connection.');
     let callback:URL;try{callback=new URL(body.callback);}catch{return fail('Invalid callback.');}
-    if(callback.protocol!=='http:'||callback.hostname!=='127.0.0.1'||!callback.port||callback.pathname!=='/callback'||callback.username||callback.password||callback.search||callback.hash)return fail('Desktop callback must use a local loopback port.');
+    if(path[1]==='android-authorizations'?callback.href!=='swarm-ai://auth/callback':callback.protocol!=='http:'||callback.hostname!=='127.0.0.1'||!callback.port||callback.pathname!=='/callback'||callback.username||callback.password||callback.search||callback.hash)return fail('Desktop callback must use a local loopback port.');
     const code=randomBytes(32).toString('base64url');await d.db.prepare('DELETE FROM device_grants WHERE expires<?').run(Date.now());
     await d.db.prepare('INSERT INTO device_grants VALUES(?,?,?,?)').run(hash(code),owner,body.challenge,Date.now()+120000);
     callback.searchParams.set('code',code);callback.searchParams.set('state',body.state);return json({callback:callback.href});
@@ -80,7 +98,7 @@ export async function accountApi(req:Request,path:string[],owner:string|null,d:D
             await d.db.prepare('INSERT INTO conversations VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data WHERE owner=excluded.owner').run(id,owner,JSON.stringify(c));await d.db.prepare('DELETE FROM sync_deleted WHERE owner=? AND id=?').run(owner,id);}
         } else if(change.kind==='provider') {
           const key=change.value?.apiKey;if(change.value!==null&&(typeof key!=='string'||key.length<8||key.length>4096||/[\r\n\0]/.test(key)))throw new Error('Invalid provider key.');await d.writeKey(owner,id,key||null,change.value?.accountId||null);
-        } else {if(change.value===null)await d.db.prepare('DELETE FROM account_documents WHERE owner=? AND id=?').run(owner,id);else await d.db.prepare('INSERT OR REPLACE INTO account_documents VALUES(?,?,?)').run(owner,id,JSON.stringify(change.value));}
+        } else {if(id==='preferences'&&change.value!==null)change.value=validatePreferences(change.value);if(change.value===null)await d.db.prepare('DELETE FROM account_documents WHERE owner=? AND id=?').run(owner,id);else await d.db.prepare('INSERT OR REPLACE INTO account_documents VALUES(?,?,?)').run(owner,id,JSON.stringify(change.value));}
       }
       await d.db.exec('COMMIT');
     }catch {await d.db.exec('ROLLBACK');return fail('Sync records could not be applied.');}

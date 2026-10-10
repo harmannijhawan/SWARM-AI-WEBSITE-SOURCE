@@ -1,0 +1,136 @@
+{
+  "startedAt": "2026-10-10T07:24:10.287Z",
+  "durationMs": 706171,
+  "requests": 2415,
+  "providerCalls": 4141,
+  "projectRequests": 1208,
+  "injectedFailures": 1035,
+  "unexpectedFailures": 0,
+  "recoveries": 1035,
+  "duplicateMessages": 0,
+  "lockFailures": 0,
+  "openProviderResponses": 1,
+  "memory": [
+    {
+      "elapsedMs": 35,
+      "rss": 70402048,
+      "heapUsed": 15304624
+    },
+    {
+      "elapsedMs": 29129,
+      "rss": 78962688,
+      "heapUsed": 20160224
+    },
+    {
+      "elapsedMs": 59924,
+      "rss": 81711104,
+      "heapUsed": 19885072
+    },
+    {
+      "elapsedMs": 90774,
+      "rss": 83058688,
+      "heapUsed": 20221568
+    },
+    {
+      "elapsedMs": 121530,
+      "rss": 83406848,
+      "heapUsed": 17753888
+    },
+    {
+      "elapsedMs": 152340,
+      "rss": 83312640,
+      "heapUsed": 16479672
+    },
+    {
+      "elapsedMs": 183114,
+      "rss": 84123648,
+      "heapUsed": 22741952
+    },
+    {
+      "elapsedMs": 213875,
+      "rss": 84602880,
+      "heapUsed": 21448744
+    },
+    {
+      "elapsedMs": 244668,
+      "rss": 84721664,
+      "heapUsed": 19721128
+    },
+    {
+      "elapsedMs": 275456,
+      "rss": 85291008,
+      "heapUsed": 18789416
+    },
+    {
+      "elapsedMs": 306304,
+      "rss": 85778432,
+      "heapUsed": 17970680
+    },
+    {
+      "elapsedMs": 337037,
+      "rss": 89026560,
+      "heapUsed": 22823816
+    },
+    {
+      "elapsedMs": 367784,
+      "rss": 89063424,
+      "heapUsed": 21158688
+    },
+    {
+      "elapsedMs": 398597,
+      "rss": 89329664,
+      "heapUsed": 19530512
+    },
+    {
+      "elapsedMs": 429332,
+      "rss": 88858624,
+      "heapUsed": 18184456
+    },
+    {
+      "elapsedMs": 460170,
+      "rss": 89350144,
+      "heapUsed": 23635568
+    },
+    {
+      "elapsedMs": 490954,
+      "rss": 88813568,
+      "heapUsed": 21763104
+    },
+    {
+      "elapsedMs": 521736,
+      "rss": 89300992,
+      "heapUsed": 20589640
+    },
+    {
+      "elapsedMs": 552465,
+      "rss": 88920064,
+      "heapUsed": 18970912
+    },
+    {
+      "elapsedMs": 583249,
+      "rss": 88965120,
+      "heapUsed": 17313456
+    },
+    {
+      "elapsedMs": 613950,
+      "rss": 89772032,
+      "heapUsed": 23089296
+    },
+    {
+      "elapsedMs": 644637,
+      "rss": 90050560,
+      "heapUsed": 22114808
+    },
+    {
+      "elapsedMs": 675410,
+      "rss": 90075136,
+      "heapUsed": 19906616
+    },
+    {
+      "elapsedMs": 706171,
+      "rss": 89382912,
+      "heapUsed": 18437456
+    }
+  ],
+  "complete": false
+}

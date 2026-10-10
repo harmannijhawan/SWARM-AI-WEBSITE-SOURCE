@@ -12,6 +12,7 @@ import type { ChatMessage, ProviderConfig } from './desktop-providers/types';
 import { rankAutomatic, type RouteHealth, type Purpose } from './auto-router';
 import type { Capability } from './desktop-providers/domain-types';
 import { ProviderError } from './desktop-providers/types';
+import { chatBudget } from './chat-budget';
 
 type Model = { id:string; modelId:string; displayName:string; providerId:string; providerName:string; capabilities?:Capability[]; contextLength?:number|null };
 type State = { db:Storage; secret:Buffer; active:Set<string>; models:Map<string,{time:number; value:{models:Model[];errors:{providerId:string;error:string}[]}}> };
@@ -32,12 +33,14 @@ const json = (data:unknown,status=200) => Response.json(data,{status});
 const now = () => new Date().toISOString();
 async function ownerFor(request:Request):Promise<string> {
   const url = new URL(request.url); const origin = request.headers.get('origin');
-  if (origin && origin !== url.origin) throw new HttpError(403,'Cross-origin requests are not allowed.');
+  const allowedOrigins=new Set([url.origin,'https://www.swarmgpt.online','https://swarmgpt.online']);
+  if(['localhost','127.0.0.1','[::1]'].includes(url.hostname)){allowedOrigins.add(`${url.protocol}//localhost:${url.port}`);allowedOrigins.add(`${url.protocol}//127.0.0.1:${url.port}`);}
+  if (origin && !allowedOrigins.has(origin)) throw new HttpError(403,'Cross-origin requests are not allowed.');
   if (process.env.CLERK_SECRET_KEY) {
     const token = request.headers.get('authorization')?.replace(/^Bearer /,'') || request.headers.get('cookie')?.match(/(?:^|;\s*)__session=([^;]+)/)?.[1];
     if(token?.startsWith('swarm_device_')) {const owner=await deviceOwner(state().db,token);if(owner)return owner;throw new HttpError(401,'Desktop session expired. Sign in again.');}
     if (!token) throw new HttpError(401,'Sign in to continue.');
-    try { const {verifyToken} = await import('@clerk/backend'); return (await verifyToken(token,{secretKey:process.env.CLERK_SECRET_KEY,authorizedParties:[url.origin]})).sub; }
+    try { const {verifyToken} = await import('@clerk/backend'); return (await verifyToken(token,{secretKey:process.env.CLERK_SECRET_KEY,authorizedParties:[...allowedOrigins]})).sub; }
     catch {throw new HttpError(401,'Your session expired. Sign in again.');}
   }
   if (!['localhost','127.0.0.1','[::1]'].includes(url.hostname) || (request.headers.get('x-forwarded-host') && !['localhost','127.0.0.1','[::1]'].includes(new URL('http://' + request.headers.get('x-forwarded-host')).hostname))) throw new HttpError(403,'Local workspace is available only on this computer. Configure Clerk before hosting publicly.');
@@ -57,7 +60,7 @@ async function credentials(owner:string,provider:string,respectSettings=true):Pr
     apiKey=(envNames[provider]||[]).map(name=>process.env[name]).find(Boolean)||null;accountId=process.env.CLOUDFLARE_ACCOUNT_ID||null;
   }
   if (!apiKey || (adapter.needsAccountId && !accountId)) return null;
-  const settings=respectSettings?await accountPreferences(owner):{};if(settings.providers?.enabled?.[provider]===false)return null;const custom=settings.providers?.baseUrls?.[provider];let baseUrl=adapter.defaultBaseUrl;if(typeof custom==='string'){try{const url=new URL(custom);if(url.protocol==='https:')baseUrl=custom.replace(/\/+$/,'');}catch{}}return {apiKey,accountId,baseUrl};
+  const settings=respectSettings?await accountPreferences(owner):{};if(settings.providers?.enabled?.[provider]===false)return null;const baseUrl=adapter.defaultBaseUrl;return {apiKey,accountId,baseUrl};
 }
 export async function storeAccountKey(owner:string,provider:string,apiKey:string|null,accountId:string|null=null) {
   if(!apiKey){await state().db.prepare('INSERT OR REPLACE INTO credentials VALUES(?,?,?)').run(owner,provider,JSON.stringify({disabled:true}));state().models.delete(owner);return;}
@@ -121,7 +124,14 @@ function providerError(error:unknown) {
   return 'The model request failed. Choose another available model or check provider settings.';
 }
 async function streamChat(request:Request,owner:string,id:string,raw:Record<string,unknown>):Promise<Response> {
+  const budget=chatBudget(request.signal);
+  try { return await streamChatWithBudget(request,owner,id,raw,budget); }
+  catch(error) { budget.dispose(); throw error; }
+}
+async function streamChatWithBudget(request:Request,owner:string,id:string,raw:Record<string,unknown>,budget:ReturnType<typeof chatBudget>):Promise<Response> {
+  const requestId=randomUUID();const requestStarted=Date.now();let stage='preflight';let attempt=0;
   const input=raw as unknown as StreamConversationInput;
+  const clientRequestId=typeof raw.requestId==='string'&&/^[a-zA-Z0-9-]{1,100}$/.test(raw.requestId)?raw.requestId:undefined;
   if(!['send','edit','regenerate','continue'].includes(input.action)||!['chat','swarm'].includes(input.mode)||typeof input.modelId!=='string'||input.modelId.length>200)throw new HttpError(400,'Invalid chat request.');
   const automatic=input.modelId==='auto';
   const adapter=adapters.find(a=>a.id===input.providerId);const config=adapter&&await credentials(owner,adapter.id);
@@ -130,6 +140,7 @@ async function streamChat(request:Request,owner:string,id:string,raw:Record<stri
   if(state().active.has(lock))throw new HttpError(409,'This conversation is already responding.');const lease=randomUUID();const acquired=await state().db.prepare('INSERT INTO active_runs(owner,id,lease,expires) VALUES(?,?,?,?) ON CONFLICT(owner,id) DO UPDATE SET lease=excluded.lease,expires=excluded.expires WHERE active_runs.expires<? RETURNING lease').get(owner,id,lease,Date.now()+360000,Date.now());if(!acquired)throw new HttpError(409,'This conversation is already responding.');state().active.add(lock);
   try {
     const available=await modelList(owner);
+    if(budget.signal.aborted)throw new HttpError(budget.timedOut?504:499,budget.timedOut?'The request exceeded its time limit. Try again.':'Request cancelled.');
     if(automatic?!available.models.length:!available.models.some(m=>m.providerId===input.providerId&&m.modelId===input.modelId))throw new HttpError(412,'Choose a currently available model.');
     const prompt=typeof input.prompt==='string'?input.prompt.trim():'';
     if(['send','edit'].includes(input.action)&&(!prompt||prompt.length>32000))throw new HttpError(400,'Enter a message of up to 32,000 characters.');
@@ -138,32 +149,34 @@ async function streamChat(request:Request,owner:string,id:string,raw:Record<stri
       if(target<0)throw new HttpError(400,'Choose a user message to edit or regenerate.');c.messages=c.messages.slice(0,target+1);
       if(input.action==='edit')c.messages[target].content=prompt;
     }else if(input.action==='continue'&&c.messages.at(-1)?.role!=='assistant')throw new HttpError(400,'There is no response to continue.');
-    if(input.action==='send')c.messages.push({id:Date.now(),role:'user',content:prompt,createdAt:now()});
+    if(input.action==='send'){const message={id:Date.now(),role:'user' as const,content:prompt,createdAt:now(),requestId:clientRequestId};c.messages.push(message);}
     if(['New chat','New conversation'].includes(c.title))c.title=prompt.replace(/\s+/g,' ').slice(0,80)||c.title;await saveConversation(owner,c);
   }catch(error){state().active.delete(lock);await state().db.prepare('DELETE FROM active_runs WHERE owner=? AND id=? AND lease=?').run(owner,id,lease);throw error;}
-  const abort=new AbortController();const cancel=()=>abort.abort();request.signal.addEventListener('abort',cancel,{once:true});
+  const abort=budget;let disconnected=request.signal.aborted;const cancel=()=>{disconnected=true;abort.abort();};request.signal.addEventListener('abort',cancel,{once:true});
   const encoder=new TextEncoder();let content='';let routedModel:Model|undefined;const buildEvents:{role:string;name:string;status:string;time:number;output?:string}[]=[];
   const stream=new ReadableStream<Uint8Array>({
     async start(controller){
-      const event=(type:string,data:unknown)=>{if(type==='agent')buildEvents.push({...data as {role:string;name:string;status:string},time:Date.now()});if(!abort.signal.aborted)controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));};
-      const heartbeat=setInterval(()=>{if(!abort.signal.aborted)controller.enqueue(encoder.encode(': keepalive\n\n'));},15000);
+      const enqueue=(data:string)=>{if(!disconnected){try{controller.enqueue(encoder.encode(data));}catch{cancel();}}};
+      const event=(type:string,data:unknown)=>{if(type==='agent')buildEvents.push({...data as {role:string;name:string;status:string},time:Date.now()});enqueue(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);};
+      const heartbeat=setInterval(()=>enqueue(': keepalive\n\n'),15000);
       const system='You are SWARM AI. Be accurate and useful. For code requests, provide complete runnable files in fenced code blocks labeled with language and filename, for example ```python filename=main.py. The website turns these into downloadable files and a ZIP. Never claim you ran tools or changed files unless actually performed.';
       const history:ChatMessage[]=c.messages.slice(-40).map(m=>({role:m.role,content:m.content}));
       if(input.action==='continue')history.push({role:'system',content:'Continue the previous answer without repeating it.'});
-      const complete=async(messages:ChatMessage[],streaming:boolean,stage?:Purpose)=>{
+      const complete=async(messages:ChatMessage[],streaming:boolean,purpose?:Purpose)=>{
+        stage=purpose||'chat';abort.signal.throwIfAborted();
         const available=(await modelList(owner)).models;
         const text=c.messages.filter(m=>m.role==='user').at(-1)?.content||'';
         const promptTokens=messages.reduce((total,m)=>total+(typeof m.content==='string'?Math.ceil(m.content.length/4):800),0);
         const healthRows=await state().db.prepare('SELECT id,data FROM routing_health WHERE owner=?').all(owner) as {id:string;data:string}[];const health=new Map(healthRows.map(r=>[r.id,JSON.parse(r.data) as RouteHealth]));
         const preferences=await accountPreferences(owner);
-        const ranked=automatic?rankAutomatic(available,text,id=>health.get(id),promptTokens,stage,preferences):available.filter(m=>m.providerId===input.providerId&&m.modelId===input.modelId);
+        const ranked=automatic?rankAutomatic(available,text,id=>health.get(id),promptTokens,purpose,preferences):available.filter(m=>m.providerId===input.providerId&&m.modelId===input.modelId);
         let lastError:unknown;const skip=new Set<string>();let attempts=0;
         for(const pick of ranked){
-          if(skip.has(pick.providerId))continue;if(attempts++>=Math.min(8,Math.max(1,(Number(preferences.routing?.maxFallbacks)||3)+1)))break;
+          if(skip.has(pick.providerId))continue;if(attempts++>=Math.min(8,Math.max(1,(preferences.routing?.maxFallbacks??3)+1)))break;
           const candidate=adapters.find(a=>a.id===pick.providerId)!;const cfg=await credentials(owner,pick.providerId);if(!cfg)continue;
-          const started=Date.now();routedModel=pick;event('model',{modelId:pick.modelId,providerId:pick.providerId,displayName:pick.displayName,providerName:pick.providerName,automatic});
+          abort.signal.throwIfAborted();attempt++;const started=Date.now();routedModel=pick;event('model',{modelId:pick.modelId,providerId:pick.providerId,displayName:pick.displayName,providerName:pick.providerName,automatic});
           try {
-            const result=await candidate.chat(cfg,pick.modelId,{messages,signal:abort.signal,maxTokens:streaming?4096:1800,temperature:0.4,stream:streaming,firstTokenTimeoutMs:60000,totalTimeoutMs:180000,onToken:streaming?token=>{content+=token;event('delta',{token});}:undefined});
+            const result=await candidate.chat(cfg,pick.modelId,{messages,signal:abort.signal,maxTokens:streaming?(preferences.ai?.maxOutputTokens??4096):1800,temperature:preferences.ai?.temperature??0.4,stream:streaming,firstTokenTimeoutMs:Math.min(60000,budget.remaining()),totalTimeoutMs:Math.min(180000,budget.remaining()),onToken:streaming?token=>{content+=token;event('delta',{token});}:undefined});
             if(!result.text.trim())throw new ProviderError('invalid','Empty response');
             await recordRoute(owner,pick.id,true,result.latencyMs,result.completionTokens);return result;
           }catch(error){
@@ -188,13 +201,16 @@ async function streamChat(request:Request,owner:string,id:string,raw:Record<stri
         if(input.mode==='swarm'){event('agent',{role:'finalizer',name:'Finalizer',status:'working'});const files=codeFiles(content);if(files.length)zipSync(Object.fromEntries(files.map(f=>[f.name,strToU8(f.content)])));event('agent',{role:'finalizer',name:'Finalizer',status:'completed',output:files.length?`Packaged ${files.length} files for download:\n${files.map(f=>f.name).join('\n')}`:'No code files were returned for this request.'});}
         const message={buildEvents:input.mode==='swarm'?buildEvents:undefined,id:Date.now(),role:'assistant' as const,content,createdAt:now(),modelName:routedModel?`${routedModel.displayName} · ${routedModel.providerName}`:undefined};c.messages.push(message);await saveConversation(owner,c);event('done',{message,conversation:c});
       }catch(error){
+        const category=budget.timedOut?'timeout':abort.signal.aborted?'cancelled':error instanceof ProviderError?error.kind:'server';
+        const diagnostic={requestId,durationMs:Date.now()-requestStarted,stage,category,status:error instanceof ProviderError?error.status:undefined,attempt,retryCount:Math.max(0,attempt-1),timedOut:category==='timeout',aborted:category==='cancelled',connectionLost:category==='network'};
+        console.warn('swarm.chat.failure',diagnostic);
         if(input.mode==='swarm'){const latest=buildEvents.filter(e=>e.status==='working').at(-1);if(latest)event('agent',{role:latest.role,name:latest.name,status:'failed'});}
-        if(abort.signal.aborted&&content.trim()){c.messages.push({id:Date.now(),role:'assistant',content:content+'\n\n*Response stopped.*',createdAt:now()});await saveConversation(owner,c);}
-        else event('error',{error:providerError(error)});
-      }finally{clearInterval(heartbeat);state().active.delete(lock);await state().db.prepare('DELETE FROM active_runs WHERE owner=? AND id=? AND lease=?').run(owner,id,lease).catch(()=>{});request.signal.removeEventListener('abort',cancel);try{controller.close();}catch{}}
-    },cancel(){abort.abort();},
+        if(disconnected&&content.trim()){c.messages.push({id:Date.now(),role:'assistant',content:content+'\n\n*Response stopped.*',createdAt:now()});await saveConversation(owner,c);}
+        else event('error',{error:budget.timedOut?'This project reached its time limit. Your message is saved; try a smaller task.':providerError(error),...diagnostic,retryable:['network','timeout','rate_limit','server'].includes(category)});
+      }finally{clearInterval(heartbeat);budget.dispose();state().active.delete(lock);await state().db.prepare('DELETE FROM active_runs WHERE owner=? AND id=? AND lease=?').run(owner,id,lease).catch(()=>{});request.signal.removeEventListener('abort',cancel);try{controller.close();}catch{}}
+    },cancel(){cancel();},
   });
-  return new Response(stream,{headers:{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-transform','X-Accel-Buffering':'no'}});
+  return new Response(stream,{headers:{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-transform','X-Accel-Buffering':'no','X-Request-Id':requestId}});
 }
 export async function handleApi(request:Request,path:string[]):Promise<Response> {return storageContext(()=>handleApiInner(request,path));}
 async function handleApiInner(request:Request,path:string[]):Promise<Response> {

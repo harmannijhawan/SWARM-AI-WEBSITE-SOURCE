@@ -8,6 +8,7 @@ import { codeFiles } from '../lib/code-files';
 import { adapters, envNames } from '../lib/server/providers';
 import { handleApi } from '../lib/server/backend';
 import { openAIChat } from '../lib/server/desktop-providers/http';
+import { ProviderError } from '../lib/server/desktop-providers/types';
 
 process.env.SWARM_DATA_DIR=mkdtempSync(join(tmpdir(),'swarm-web-test-'));
 delete process.env.CLERK_SECRET_KEY;
@@ -87,4 +88,39 @@ test('Auto falls back after a provider failure and stores the actual model',asyn
  const events=await stream.text();assert.equal(calls,2);assert(events.includes('event: routing'));assert(events.includes('event: reset'));assert(events.includes('event: done'));
  const stored=await (await request(`conversations/${c.id}`)).json();assert.equal(stored.messages.at(-1).content,'Fallback works.');assert(stored.messages.at(-1).modelName.includes('Groq'));
  await request('providers/groq','DELETE');
+});
+
+test('web project deadline emits a typed error, preserves input, sanitizes logs and releases its lock',async t=>{
+  const adapter=adapters.find(a=>a.id==='openai')!;
+  await request('providers/openai','PUT',{apiKey:'test-deadline-key'});
+  adapter.discover=async()=>[{modelId:'deadline-model',displayName:'Deadline fixture',capabilities:['chat'],contextLength:8192,maxOutput:4096,freeStatus:'unknown'}];
+  let began!:()=>void;const started=new Promise<void>(resolve=>began=resolve);let aborted=false;
+  adapter.chat=async(_config,_model,input)=>{
+    began();await new Promise<void>((_resolve,reject)=>input.signal.addEventListener('abort',()=>{aborted=true;reject(new Error('PRIVATE-FIXTURE-CONTENT'));},{once:true}));throw new Error('unreachable');
+  };
+  const c=await (await request('conversations','POST',{})).json();
+  const warnings:unknown[]=[];const original=console.warn;console.warn=(...args)=>{warnings.push(args);};
+  try {
+    t.mock.timers.enable({apis:['setTimeout','Date']});
+    const response=await request(`conversations/${c.id}/stream`,'POST',{action:'send',prompt:'PRIVATE-FIXTURE-CONTENT',providerId:'openai',modelId:'deadline-model',mode:'swarm'});
+    await started;t.mock.timers.tick(240001);
+    const events=await response.text();assert(aborted);assert(events.includes('event: error'));assert(events.includes('"category":"timeout"'));assert(events.includes('"stage":"plan"'));assert(!events.includes('event: done'));
+    const logs=JSON.stringify(warnings);assert(!logs.includes('PRIVATE-FIXTURE-CONTENT'));assert(!logs.includes('test-deadline-key'));assert(logs.includes('requestId'));
+    const stored=await (await request(`conversations/${c.id}`)).json();assert.equal(stored.messages.length,1);assert.equal(stored.messages[0].role,'user');
+    assert.equal((await request(`conversations/${c.id}`,'DELETE')).status,204);
+  }finally {console.warn=original;t.mock.timers.reset();await request('providers/openai','DELETE');}
+});
+
+test('Auto rate-limit exhaustion is bounded and permanent authentication skips the provider',async()=>{
+  const adapter=adapters.find(a=>a.id==='groq')!;
+  adapter.discover=async()=>Array.from({length:10},(_,i)=>({modelId:`reliability-${i}`,displayName:`Fixture ${i}`,capabilities:['chat' as const],contextLength:8192,maxOutput:4096,freeStatus:'free' as const}));
+  for(const category of ['rate_limit','auth'] as const){
+    await request('providers/groq','PUT',{apiKey:'test-exhaustion-key'});
+    let calls=0;adapter.chat=async()=>{calls++;throw new ProviderError(category,'Private upstream text',category==='auth'?401:429,1000);};
+    const c=await (await request('conversations','POST',{})).json();
+    const response=await request(`conversations/${c.id}/stream`,'POST',{action:'send',prompt:'Hello',providerId:'groq',modelId:'auto',mode:'chat'});
+    const events=await response.text();assert(events.includes('event: error'));assert.equal(calls,category==='auth'?1:4);assert(!events.includes('Private upstream text'));
+    assert.equal((await request(`conversations/${c.id}`,'DELETE')).status,204);
+    await request('providers/groq','DELETE');
+  }
 });

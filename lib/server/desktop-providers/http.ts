@@ -79,7 +79,7 @@ export async function openAIChat(
   providerKey = url,
 ): Promise<ChatResult> {
   const started = Date.now();
-  const link = linkedController(req.signal, req.firstTokenTimeoutMs);
+  const link = linkedController(req.signal, Math.min(req.firstTokenTimeoutMs, req.totalTimeoutMs));
   let totalTimer: NodeJS.Timeout | null = null;
   let receivedToken = false;
   const body: Record<string, unknown> = {
@@ -119,7 +119,8 @@ export async function openAIChat(
       const decoder = new TextDecoder();
       let buf = '';
       let gotAnything = false;
-      for (;;) {
+      let completed = false;
+      try { reading: for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
@@ -129,9 +130,9 @@ export async function openAIChat(
           buf = buf.slice(nl + 1);
           if (!line.startsWith('data:')) continue;
           const data = line.slice(5).trim();
-          if (data === '[DONE]') continue;
+          if (data === '[DONE]') { completed = true; break reading; }
           let chunk: { choices?: { delta?: { content?: string; reasoning_content?: string; reasoning?: string }; finish_reason?: string }[]; usage?: typeof usage; error?: { message?: string; code?: number } };
-          try { chunk = JSON.parse(data); } catch { continue; }
+          try { chunk = JSON.parse(data); } catch { throw new ProviderError('invalid', 'Malformed provider stream'); }
           if (chunk.error) throw new ProviderError(chunk.error.code === 429 ? 'rate_limit' : 'server', `Stream error: ${chunk.error.message ?? 'unknown'}`);
           const delta = chunk.choices?.[0]?.delta;
           if (!gotAnything && (delta?.content || delta?.reasoning_content || delta?.reasoning)) {
@@ -147,7 +148,8 @@ export async function openAIChat(
         }
       }
       if (req.signal.aborted) throw new ProviderError('cancelled', 'Cancelled');
-      if (!finish && Date.now() - started >= req.totalTimeoutMs - 50) throw new ProviderError('timeout', 'Response exceeded total timeout');
+      if (!completed && !finish) throw new ProviderError('network', 'Provider connection closed before the response completed');
+      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
     }
     const u = usage as { prompt_tokens?: number; completion_tokens?: number } | null;
     const completionTokens = u?.completion_tokens ?? estimateTokens(text);

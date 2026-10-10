@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- simple hexagon "swarm" glyph -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,30 L72,40 L72,60 L54,70 L36,60 L36,40 Z" />
+    <path
+        android:fillColor="#0A84FF"
+        android:pathData="M54,40 L63,45 L63,55 L54,60 L45,55 L45,45 Z" />
+</vector>
