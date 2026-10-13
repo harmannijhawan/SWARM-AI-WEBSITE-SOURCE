@@ -2,6 +2,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {Pool,type PoolClient} from 'pg';
 import {AsyncLocalStorage} from 'node:async_hooks';
 const tables:Record<string,{columns:string[];key:string[]}>= {
+  provider_status:{columns:['owner','provider','data'],key:['owner','provider']},
   model_metadata:{columns:['owner','provider','fingerprint','data','checked'],key:['owner','provider']},
   route_leases:{columns:['owner','provider','lease','expires'],key:['owner','provider','lease']},
   unlimited_accounts:{columns:['owner'],key:['owner']},
