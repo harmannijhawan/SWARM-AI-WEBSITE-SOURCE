@@ -1,4 +1,4 @@
 {
-  "source": "SWARM web adaptation of desktop shared/model-score.ts (web capability filtering)",
-  "sha256": "20f31c263f887d694cb851fd4ccc5f9b5ef2a0bcbef7a6477f93e89397b9b861"
+  "source": "SWARM desktop shared/model-score.ts",
+  "sha256": "6c4b15310e314c6007db91ef8433a1bb347fa78360c1b9cdcb57c3baa5a34daf"
 }

@@ -10,3 +10,11 @@ node_modules/
 
 apps/
 .cloud-probe.ts
+.next*/
+_screenshots/
+*.log
+*.sqlite*
+*.key
+*.exe
+*.apk
+reports/

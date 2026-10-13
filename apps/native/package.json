@@ -1,7 +1,7 @@
 {
   "name": "swarm",
   "productName": "SWARM",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Give SWARM an outcome. Free-first autonomous multi-agent build platform.",
   "main": "dist/main/main.js",
   "private": true,

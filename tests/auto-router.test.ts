@@ -9,3 +9,9 @@ test('Auto router selects by purpose and filters cooldown, context and paid-only
  assert(!rankAutomatic(models,'hello',id=>id==='groq:code'?{calls:2,successes:0,consecutiveFailures:2,latencyMs:100,cooldownUntil:Date.now()+60000,tokensPerSec:null}:undefined,100).some(m=>m.id==='groq:code'));
 });
 
+test('Fast prefers measured first-token latency over provider and model-name priors',()=>{
+ const models=[{id:'groq:fast',providerId:'groq',modelId:'small-fast',contextLength:32000},{id:'nvidia:large',providerId:'nvidia',modelId:'large-120b',contextLength:32000}];
+ const ranked=rankAutomatic(models,'hello',id=>({calls:10,successes:10,consecutiveFailures:0,latencyMs:2000,ttftMs:id==='groq:fast'?900:100,tokensPerSec:50,cooldownUntil:0}),100,undefined,{ai:{routing:'fastest',freeMode:false}});
+ assert.equal(ranked[0].id,'nvidia:large');
+});
+

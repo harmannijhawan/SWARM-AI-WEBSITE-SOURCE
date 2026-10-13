@@ -7,27 +7,26 @@ import { ProviderError } from './desktop-providers/types';
 // Explicit operator allowlists are also the cost boundary. Discovery alone grants no access.
 export function modelPolicy() {
   const read = (name: string) => (process.env[name] || '').split(',').map(s => s.trim()).filter(Boolean);
-  return { standard: read('SWARM_STANDARD_MODELS'), premium: read('SWARM_PREMIUM_MODELS'), max:read('SWARM_MAX_MODELS'), fast:read('SWARM_FAST_MODELS') };
+  return { standard: read('SWARM_STANDARD_MODELS'), premium: read('SWARM_PREMIUM_MODELS') };
 }
 export function managedCredentials(provider: string): ProviderConfig | null {
   const adapter = adapters.find(a => a.id === provider);
   if (!adapter) return null;
-  const apiKey = (envNames[provider] || []).map(name => process.env[name]).find(Boolean) || null;
+  const apiKey = (envNames[provider] || []).map(name => process.env[name]?.trim()).find(Boolean) || null;
   const accountId = provider === 'cloudflare' ? process.env.CLOUDFLARE_ACCOUNT_ID || null : null;
   return apiKey && (!adapter.needsAccountId || accountId) ? { apiKey, accountId, baseUrl: adapter.defaultBaseUrl } : null;
 }
 export async function eligibleModelIds(db: Storage, owner: string) {
   const usage = await accountUsage(db, owner), policy = modelPolicy();
-  return [...new Set([...policy.standard,...(usage.plan.premium?[...policy.premium,...policy.fast]:[]),...(usage.plan.id==='max'?policy.max:[])])];
+  return usage.plan.premium ? [...policy.standard, ...policy.premium] : policy.standard;
 }
 export async function routingPolicy(db: Storage, owner: string) {
   const { account, plan } = await accountUsage(db, owner);
   if (account.profile === 'premium' && !plan.premium) throw new ManagedError(403, 'premium_required', 'Choose SWARM SWE or renew Pro to use Premium.');
   const policy = modelPolicy();
-  if(account.profile==='max' && plan.id!=='max')throw new ManagedError(403,'max_required','SWARM Max requires Max access.');
-  const ids = account.profile==='max' ? policy.max : account.profile==='premium' ? policy.premium : account.profile==='flash' ? policy.fast : plan.premium ? policy.premium : policy.standard;
+  const ids = account.profile === 'premium' ? policy.premium : policy.standard;
   const fast = plan.premium && (account.profile === 'flash' || account.speed === 'fast');
-  const quality = ['premium','max'].includes(account.profile) || account.speed === 'quality';
+  const quality = account.profile === 'premium' || account.speed === 'quality';
   return { ids, routing: fast ? 'fastest' as const : quality ? 'quality' as const : 'auto' as const, reasoningEffort: fast ? 'low' as const : quality ? 'high' as const : 'medium' as const };
 }
 export function validateManagedMessages(value: unknown): ChatMessage[] {
@@ -48,6 +47,9 @@ export function validateManagedMessages(value: unknown): ChatMessage[] {
   return value;
 }
 export function safeProviderFailure(error: unknown) {
-  if (error instanceof ProviderError && ['quota','rate_limit'].includes(error.kind)) return 'SWARM provider capacity is temporarily limited. Please retry later.';
-  return 'SWARM could not reach an eligible AI service. Your input is saved; please retry later.';
+  if(error instanceof ProviderError) {
+    const messages:Record<string,string>={auth:'A provider key is invalid or unauthorized. Check Settings → Providers, or contact the server operator for SWARM-managed access.',quota:'The eligible provider accounts have no available quota. The operator needs to check provider capacity.',rate_limit:'Eligible providers are rate-limited. Retry after their cooldown.',network:'The connection to eligible providers failed. Check connectivity and retry.',timeout:'Eligible providers did not respond within the deadline. Please retry.',context:'No eligible model could accept the conversation context. Choose a larger context model.',bad_request:'The provider rejected the request input. Review your message and selected capabilities.',unsupported:'No eligible model supports the requested capability.',cancelled:'Request cancelled.',server:'Eligible providers are temporarily unavailable. Please retry.'};
+    return messages[error.kind]||'All eligible routes were exhausted. Please retry or contact the operator. Your SWARM allowance was not consumed.';
+  }
+  return 'All eligible routes were exhausted. Please retry or contact the operator. Your SWARM allowance was not consumed.';
 }

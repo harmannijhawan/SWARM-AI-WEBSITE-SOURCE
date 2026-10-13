@@ -42,3 +42,23 @@ next-env.d.ts
 # Isolated interface QA build
 /.next-ui-qa/
 /.next-ui-build/
+
+# Local runtime data and generated artifacts
+.swarm-web/
+.next*/
+.screenshots/
+_screenshots/
+*.log
+*.sqlite*
+*.key
+*.jks
+*.keystore
+*.exe
+*.apk
+*.blockmap
+**/node_modules/
+**/build/
+**/dist/
+**/release/
+**/.gradle/
+.cloud-probe.ts

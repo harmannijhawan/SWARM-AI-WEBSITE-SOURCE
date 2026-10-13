@@ -40,7 +40,7 @@ test('CONCURRENCY: 50 parallel requests from single user respects quota limit', 
       assert.equal(result.status, 'rejected');
       const error = result.reason as any;
       assert.equal(error.status, 429);
-      assert.equal(error.code, 'allowance_exhausted');
+      assert.equal(error.code, 'allowance_reserved');
     }
     
     console.log(`✓ 50 parallel requests completed in ${duration}ms`);

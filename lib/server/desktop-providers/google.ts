@@ -33,7 +33,8 @@ export const google: ProviderAdapter = {
           capabilities: inferCapabilities(id, { vision: /gemini|gemma-3/.test(id) || undefined, long_context: (m.inputTokenLimit ?? 0) >= 100_000 || undefined }),
           contextLength: m.inputTokenLimit ?? null,
           maxOutput: m.outputTokenLimit ?? null,
-          freeStatus: 'free_tier',
+          // Spec §1: the Gemini API does not report per-model pricing, so free status stays unknown.
+          freeStatus: 'unknown',
         });
       }
       if (!res.nextPageToken) break;

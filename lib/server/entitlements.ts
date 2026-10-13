@@ -14,19 +14,16 @@ export function planCatalog() {
   const price = Number(process.env.SWARM_PRO_PRICE_PAISE || 69900);
   const configuredLimit = (name: string) => process.env[name] ? integer(name, 1) : null;
   return {
-    free: { id: 'free', builds: integer('SWARM_FREE_BUILDS', 5), chats: integer('SWARM_FREE_CHATS', 2), days, premium: false, concurrency: integer('SWARM_FREE_CONCURRENCY',1) },
-    max: { id: 'max', builds: configuredLimit('SWARM_MAX_BUILDS'), chats: configuredLimit('SWARM_MAX_CHATS'), days:30, premium:true, concurrency:integer('SWARM_MAX_CONCURRENCY', 8), price:200000, currency:'INR', accessDays:30, renewal:'manual' },
+    free: { id: 'free', builds: integer('SWARM_FREE_BUILDS', 5), chats: integer('SWARM_FREE_CHATS', 2), days, premium: false, concurrency: integer('SWARM_FREE_CONCURRENCY', 1) },
     pro: { id: 'pro', builds: configuredLimit('SWARM_PRO_BUILDS'), chats: configuredLimit('SWARM_PRO_CHATS'), days, premium: true, concurrency: integer('SWARM_PRO_CONCURRENCY', 4),
       price: Number.isSafeInteger(price) && price >= 100 ? price : null, currency: 'INR', accessDays: integer('SWARM_PRO_ACCESS_DAYS', 30), renewal: 'manual' },
   };
 }
-export type Entitlement = { owner: string; created: number; pro_until: number; profile: 'swe' | 'flash' | 'premium' | 'max'; speed: 'fast' | 'balanced' | 'quality' };
+export type Entitlement = { owner: string; created: number; pro_until: number; profile: 'swe' | 'flash' | 'premium'; speed: 'fast' | 'balanced' | 'quality' };
 const ready = new WeakMap<Storage, Promise<void>>();
 export async function managedTables(db: Storage) {
   if (!ready.has(db)) ready.set(db, db.exec(`
     CREATE TABLE IF NOT EXISTS entitlements(owner TEXT PRIMARY KEY,created INTEGER NOT NULL,pro_until INTEGER NOT NULL,profile TEXT NOT NULL,speed TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS max_entitlements(owner TEXT PRIMARY KEY,expires INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS payment_plans(id TEXT PRIMARY KEY,plan TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS unlimited_accounts(owner TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS usage_ledger(owner TEXT NOT NULL,id TEXT NOT NULL,kind TEXT NOT NULL,period INTEGER NOT NULL,state TEXT NOT NULL,fingerprint TEXT NOT NULL,created INTEGER NOT NULL,PRIMARY KEY(owner,id));
     CREATE INDEX IF NOT EXISTS usage_owner_period ON usage_ledger(owner,period,state);
@@ -56,16 +53,15 @@ export async function initializeAccount(db: Storage, owner: string): Promise<Ent
 export async function accountUsage(db: Storage, owner: string) {
   const account = await initializeAccount(db, owner), catalog = planCatalog();
   const unlimited = !!await db.prepare('SELECT owner FROM unlimited_accounts WHERE owner=?').get(owner);
-  const max = await db.prepare('SELECT expires FROM max_entitlements WHERE owner=?').get(owner);
-  const basePlan = Number(max?.expires||0) > Date.now() ? catalog.max : account.pro_until > Date.now() ? catalog.pro : catalog.free;
+  const basePlan = account.pro_until > Date.now() ? catalog.pro : catalog.free;
   const plan = unlimited ? {...basePlan, builds:null, chats:null, concurrency:Number.MAX_SAFE_INTEGER, premium:true} : basePlan;
   const duration = plan.days * 86400000;
   // Ensure account.created is valid before calculating period
   const created = account.created || Date.now();
   const period = created + Math.floor((Date.now() - created) / duration) * duration;
-  const rows = await db.prepare("SELECT kind,COUNT(*) AS n FROM usage_ledger WHERE owner=? AND period=? AND state IN ('reserved','consumed') GROUP BY kind").all(owner, period);
+  const rows = await db.prepare("SELECT kind,COUNT(*) AS n FROM usage_ledger WHERE owner=? AND period=? AND state='consumed' GROUP BY kind").all(owner, period);
   const count = (kind: string) => Number(rows.find(r => r.kind === kind)?.n || 0);
-  return { account, maxUntil:Number(max?.expires||0), plan, unlimited, period, resetsAt: period + duration, builds: { used: count('build'), limit: plan.builds }, chats: { used: count('chat'), limit: plan.chats } };
+  return { account, plan, unlimited, period, resetsAt: period + duration, builds: { used: count('build'), limit: plan.builds }, chats: { used: count('chat'), limit: plan.chats } };
 }
 export async function managedTransaction<T>(db: Storage, owner: string, fn: () => Promise<T>): Promise<T> {
   return storageContext(async () => {
@@ -84,8 +80,10 @@ export async function reserveUsage(db: Storage, owner: string, id: string, kind:
     if (previous) throw new ManagedError(409, 'duplicate_request', 'This request ID was already used. Refresh your conversation before starting a new request.');
     const usage = await accountUsage(db, owner);
     const quota = kind === 'build' ? usage.builds : usage.chats;
-    if (!usage.unlimited && quota.limit === null) throw new ManagedError(503, 'fair_use_unconfigured', 'Your plan capacity is awaiting operator configuration.');
-    if (quota.limit !== null && quota.used >= quota.limit) throw new ManagedError(429, 'allowance_exhausted', usage.plan.id==='max' ? 'Your Max allowance is exhausted. It resets at '+new Date(usage.resetsAt).toISOString()+'.' : 'Your '+usage.plan.id+' allowance is exhausted. Upgrade to '+(usage.plan.id==='pro'?'Max':'Pro or Max')+' or wait until '+new Date(usage.resetsAt).toISOString()+'.');
+    if (!usage.unlimited && quota.limit === null) throw new ManagedError(503, 'fair_use_unconfigured', 'SWARM Pro capacity is awaiting operator configuration.');
+    if (quota.limit !== null && quota.used >= quota.limit) throw new ManagedError(429, 'allowance_exhausted', `Your ${usage.plan.id} allowance is exhausted. It resets at ${new Date(usage.resetsAt).toISOString()}.`);
+    const pending = await db.prepare("SELECT COUNT(*) AS n FROM usage_ledger WHERE owner=? AND period=? AND kind=? AND state='reserved'").get(owner, usage.period, kind);
+    if (quota.limit !== null && quota.used + Number(pending?.n || 0) >= quota.limit) throw new ManagedError(429, 'allowance_reserved', 'Your remaining allowance is reserved by an operation in progress. Wait for it to finish or cancel it.');
     const inFlight = await db.prepare("SELECT COUNT(*) AS n FROM usage_ledger WHERE owner=? AND state='reserved' AND created>?").get(owner, Date.now() - 360000);
     if (Number(inFlight?.n) >= usage.plan.concurrency) throw new ManagedError(429, 'concurrency', 'Wait for your current SWARM request to finish.');
     const attempts = await db.prepare('SELECT COUNT(*) AS n FROM usage_ledger WHERE owner=? AND created>?').get(owner, Date.now() - 3600000);
@@ -98,9 +96,8 @@ export async function settleUsage(db: Storage, owner: string, id: string, succes
   await db.prepare("UPDATE usage_ledger SET state=? WHERE owner=? AND id=? AND state='reserved'").run(success ? 'consumed' : 'failed', owner, id);
 }
 export async function saveManagedPreferences(db: Storage, owner: string, profile: unknown, speed: unknown) {
-  if (typeof profile !== 'string' || typeof speed !== 'string' || !['swe','flash','premium','max'].includes(profile) || !['fast','balanced','quality'].includes(speed)) throw new ManagedError(400, 'preferences', 'Choose a supported SWARM profile and speed.');
+  if (typeof profile !== 'string' || typeof speed !== 'string' || !['swe','flash','premium'].includes(profile) || !['fast','balanced','quality'].includes(speed)) throw new ManagedError(400, 'preferences', 'Choose a supported SWARM profile and speed.');
   const usage = await accountUsage(db, owner);
-  if (profile === 'max' && usage.plan.id !== 'max') throw new ManagedError(403,'max_required','SWARM Max requires a verified Max subscription.');
   if (profile === 'premium' && !usage.plan.premium) throw new ManagedError(403, 'premium_required', 'SWARM Premium requires Pro.');
   if ((profile === 'flash' || speed === 'fast') && !usage.plan.premium) throw new ManagedError(403, 'premium_required', 'Unlock SWARM SWE Fast with Pro.');
   await db.prepare('UPDATE entitlements SET profile=?,speed=? WHERE owner=?').run(profile, speed, owner);

@@ -17,57 +17,8 @@ export interface ConfigIssue {
 export function validateConfiguration(): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
 
-  // Validate provider credentials
-  const configuredProviders: string[] = [];
-  for (const [providerId, varNames] of Object.entries(envNames)) {
-    const hasCredential = varNames.some(name => {
-      const value = process.env[name];
-      return value && value.trim().length > 0;
-    });
-    if (hasCredential) {
-      configuredProviders.push(providerId);
-    }
-  }
-
-  if (configuredProviders.length === 0) {
-    issues.push({
-      category: 'provider',
-      severity: 'error',
-      message: 'No AI provider credentials are configured. Configure at least one provider API key to enable AI functionality.',
-      requiredEnvVar: 'GROQ_API_KEY (recommended) or OPENROUTER_API_KEY, GEMINI_API_KEY, NVIDIA_API_KEY, OPENAI_API_KEY'
-    });
-  } else {
-    issues.push({
-      category: 'provider',
-      severity: 'warning',
-      message: `${configuredProviders.length} provider(s) configured: ${configuredProviders.join(', ')}. AI functionality is available.`
-    });
-  }
-
-  // Validate model allowlists
-  const standardModels = process.env.SWARM_STANDARD_MODELS || '';
-  const premiumModels = process.env.SWARM_PREMIUM_MODELS || '';
-
-  if (!standardModels.trim()) {
-    issues.push({
-      category: 'provider',
-      severity: 'error',
-      message: 'SWARM_STANDARD_MODELS is not configured. Set at least one provider:model pair (e.g., groq:openai/gpt-oss-20b).',
-      requiredEnvVar: 'SWARM_STANDARD_MODELS'
-    });
-  } else {
-    // Check if allowlist matches configured providers
-    const allowedProviders = new Set(standardModels.split(',').map(m => m.split(':')[0].trim()));
-    const missingProviders = configuredProviders.filter(p => !allowedProviders.has(p));
-    if (missingProviders.length > 0) {
-      issues.push({
-        category: 'provider',
-        severity: 'warning',
-        message: `Configured providers not in allowlist: ${missingProviders.join(', ')}. Add them to SWARM_STANDARD_MODELS.`
-      });
-    }
-  }
-
+  if (!Object.values(envNames).flat().some(name => process.env[name]?.trim())) issues.push({category:'provider',severity:'error',message:'No server provider key is configured.'});
+  if (!process.env.SWARM_STANDARD_MODELS?.trim()) issues.push({category:'provider',severity:'error',message:'Configure SWARM_STANDARD_MODELS with approved provider:model IDs.'});
   // Validate Cashfree configuration
   const cashfreeEnv = process.env.CASHFREE_ENV || 'sandbox';
   if (cashfreeEnv !== 'sandbox' && cashfreeEnv !== 'production') {

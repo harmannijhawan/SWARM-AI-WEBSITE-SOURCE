@@ -1,116 +1,140 @@
-# Configuration Required for SWARM AI Platform
+# SWARM Backend Configuration Required
 
-## Phase 2 & 4 Completed ✅
+## Critical Configuration Issue
 
-### Backend Health Check - FIXED
-- **Issue**: Health endpoint required authentication even for local workspace mode
-- **Fix**: Moved health check to public route in `lib/server/backend.ts` line 252
-- **Verification**: `curl http://127.0.0.1:3000/api/health` now returns `{"status":"ok","mode":"account","timestamp":...}`
+The SWARM backend requires specific environment variables to be configured before it can start. If these are missing, you'll see authentication errors with HTTP 503 status codes.
 
-### Usage Allowance Date Rendering - FIXED
-- **Issue**: Invalid account.created timestamps caused "Invalid Date" display
-- **Fix**: Added validation in `lib/server/entitlements.ts` to fix invalid timestamps
-- **Fix**: Added frontend validation in `components/cloud/managed-account.tsx` with fallback message
-- **Result**: Now displays "Reset schedule unavailable" instead of "Invalid Date"
+## Required Configuration Steps
 
-## Phase 3: AI Provider Discovery - NEEDS CONFIGURATION
+### 1. Configure AI Provider Credentials
 
-### Current State
-The backend is ready to discover AI providers, but credentials need to be configured in `.env.local`.
+**The backend REQUIRES at least one AI provider API key.** Add your API key to `.env.local`:
 
-### Required Environment Variables
-
-**Provider Credentials** (configure at least one):
 ```bash
-# Groq (recommended for fast, free inference)
-GROQ_API_KEY=gsk_your_groq_api_key_here
+# Choose at least ONE provider and add your API key:
 
-# Or configure alternative providers:
-OPENROUTER_API_KEY=sk-or-your-openrouter-key
-GEMINI_API_KEY=your-gemini-api-key
-NVIDIA_API_KEY=nvapi-your-nvidia-key
-OPENAI_API_KEY=sk-your-openai-key
+# Groq (Recommended - Fast and free tier available)
+# Get key from: https://console.groq.com/keys
+GROQ_API_KEY=gsk_your_actual_key_here
+
+# OR OpenRouter (Multiple models, pay-as-you-go)
+# Get key from: https://openrouter.ai/keys
+OPENROUTER_API_KEY=sk-or-your_key_here
+
+# OR Google Gemini
+GEMINI_API_KEY=your_key_here
+
+# OR NVIDIA
+NVIDIA_API_KEY=nvapi-your_key_here
+
+# OR OpenAI
+OPENAI_API_KEY=sk-your_key_here
 ```
 
-**Model Allowlist** (already configured):
+### 2. Configure Model Allowlist
+
+**CRITICAL:** You must specify which models are available:
+
 ```bash
-SWARM_STANDARD_MODELS=groq:openai/gpt-oss-20b
-SWARM_PREMIUM_MODELS=
+# Format: provider:model-id,provider:model-id
+# Get Groq model IDs from: https://console.groq.com/docs/models
+
+SWARM_STANDARD_MODELS=groq:llama-3.3-70b-versatile,groq:llama-3.1-70b-versatile
+SWARM_PREMIUM_MODELS=groq:llama-3.1-405b-reasoning
 ```
 
-### How to Configure
+**Common Groq Models:**
+- `groq:llama-3.3-70b-versatile` - Latest, balanced
+- `groq:llama-3.1-70b-versatile` - Fast, reliable
+- `groq:llama-3.1-8b-instant` - Ultra fast
+- `groq:mixtral-8x7b-32768` - Good for reasoning
+- `groq:llama-3.1-405b-reasoning` - Most capable (Pro only)
 
-1. **Get a Groq API Key** (recommended - free tier available):
-   - Visit https://console.groq.com/keys
-   - Sign up and create an API key
-   - Add to `.env.local`: `GROQ_API_KEY=gsk_...`
+### 3. Configure Public URL
 
-2. **Alternative: Use existing provider key**:
-   - If you have keys for OpenRouter, NVIDIA, Gemini, or OpenAI
-   - Add the corresponding environment variable to `.env.local`
-   - Update `SWARM_STANDARD_MODELS` to match the provider:model format
+```bash
+# For local development:
+SWARM_PUBLIC_URL=http://localhost:3000
 
-3. **Restart the development server**:
-   ```bash
-   cd C:\Users\user\Documents\SWARM---ai\swarm-ai-website-design
-   # Stop current server (Ctrl+C)
-   npm run dev
-   ```
+# For production deployment:
+SWARM_PUBLIC_URL=https://www.swarmgpt.online
+```
 
-### Verification Steps
+### 4. Configure Pro Plan Limits (Optional)
 
-After configuring credentials:
+```bash
+SWARM_PRO_BUILDS=100
+SWARM_PRO_CHATS=200
+```
 
-1. Check backend health:
-   ```bash
-   curl http://127.0.0.1:3000/api/health
-   ```
+## Symptoms of Missing Configuration
 
-2. Check model discovery (requires authentication):
-   - Sign in at http://127.0.0.1:3000/app
-   - Navigate to Settings
-   - Check "AI service status" section
+### Desktop App Shows:
+```
+Account service could not complete the request (503).
+Sign out before reconnecting.
+```
 
-3. Test a chat request:
-   - Navigate to http://127.0.0.1:3000/app
-   - Send a test message
-   - Verify response comes from configured provider
+### Website Shows:
+```
+Loading SWARM account…
+(stuck forever)
+```
 
-### Current .env.local Status
+Or:
+```
+SWARM AI is not properly configured. See server logs for details.
+No connected models
+```
 
-The current `.env.local` file contains:
-- ✅ Clerk authentication keys (configured for Vercel deployment)
-- ✅ Cashfree production credentials (should be changed to sandbox for testing)
-- ❌ Provider API keys (GROQ_API_KEY, etc. are empty)
-- ❌ Cashfree sandbox credentials (empty)
+## How to Fix
 
-### Important Notes
+1. **Copy the example** `.env.example` to `.env.local`
+2. **Add at least one AI provider key** (Groq recommended)
+3. **Set SWARM_STANDARD_MODELS** with your provider:model pairs
+4. **Set SWARM_PUBLIC_URL** to your deployment URL
+5. **Restart the Next.js server**
 
-1. **Never commit `.env.local`** - it's in .gitignore for security
-2. **Provider keys are server-side only** - never use NEXT_PUBLIC_ prefix
-3. **Model allowlist must match configured credentials** - if you use Groq, keep `SWARM_STANDARD_MODELS=groq:openai/gpt-oss-20b`
-4. **Cashfree is set to production** - change to sandbox for testing
+```bash
+cd swarm-ai-website-design
+# Edit .env.local and add your configuration
+pnpm dev
+```
 
-### Next Steps After Configuration
+## Verification
 
-Once provider credentials are configured:
-1. Phase 3 will be complete (AI provider discovery and routing)
-2. Phase 7 (Cashfree sandbox) can be tested
-3. Real AI requests will work in the composer
-4. Model profiles (SWARM SWE, Flash, Premium) will function
+After configuration, the server should log:
 
-### Troubleshooting
+```
+✓ Configuration validation passed
+⚠ [PROVIDER] 1 provider(s) configured: groq. AI functionality is available.
+```
 
-**Issue**: "No connected models" after configuring credentials
-- **Solution**: Verify the environment variable name matches exactly (case-sensitive)
-- **Solution**: Restart the development server to reload environment variables
-- **Solution**: Check that SWARM_STANDARD_MODELS includes the provider:model format
+If you see errors, check the server logs for specific missing variables.
 
-**Issue**: "SWARM provider discovery is temporarily unavailable"
-- **Solution**: Verify the API key is valid and not expired
-- **Solution**: Check network connectivity to provider API
-- **Solution**: Review provider-specific rate limits
+## Security Notes
 
-**Issue**: Request fails with authentication error
-- **Solution**: Verify the API key has the correct format for the provider
-- **Solution**: Check if the provider requires additional configuration (e.g., account ID for Cloudflare)
+- **NEVER** commit API keys to git
+- **NEVER** use `NEXT_PUBLIC_` prefix for secrets
+- Keep `.env.local` in `.gitignore`
+- Use different keys for development and production
+
+## Need Help?
+
+1. Check server logs for specific configuration errors
+2. Verify your API key is valid at the provider's dashboard
+3. Confirm model IDs match your provider's documentation
+4. Test API key with a simple curl request first
+
+## Quick Start for Development
+
+```bash
+# Minimum viable .env.local:
+GROQ_API_KEY=gsk_your_key_from_groq_console
+SWARM_STANDARD_MODELS=groq:llama-3.3-70b-versatile
+SWARM_PUBLIC_URL=http://localhost:3000
+SWARM_FREE_BUILDS=5
+SWARM_FREE_CHATS=20
+```
+
+This will get the backend running for local development.

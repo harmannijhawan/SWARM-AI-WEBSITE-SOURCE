@@ -1,5 +1,163 @@
 /* SWARM / original white + blue. Shared product tokens; all themes use the same surfaces. */
 @font-face{font-family:Inter;font-style:normal;font-weight:100 900;font-display:swap;src:url('/fonts/inter-latin-variable.woff2') format('woff2')}
+/* Dynamic viewport sizing - Perfect fit for any device */
+.cloud-theme {
+  /* Base responsive units */
+  --viewport-width: 100vw;
+  --viewport-height: 100dvh;
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+  
+  /* Dynamic spacing based on viewport */
+  --dynamic-padding: clamp(8px, 2vw, 24px);
+  --dynamic-gap: clamp(6px, 1.5vw, 16px);
+  --dynamic-font: clamp(12px, 3.5vw, 14px);
+  --dynamic-heading: clamp(18px, 5vw, 28px);
+}
+
+/* Fullscreen layout with safe areas */
+.cloud-shell {
+  width: 100vw;
+  height: 100dvh;
+  padding-left: var(--safe-area-inset-left);
+  padding-right: var(--safe-area-inset-right);
+}
+
+.desktop-web-shell .desktop-web-topbar {
+  padding-top: max(8px, var(--safe-area-inset-top));
+}
+
+.desktop-composer-wrap {
+  padding-bottom: max(12px, var(--safe-area-inset-bottom));
+}
+
+/* Device-specific optimizations */
+@media (max-width: 375px) {
+  /* iPhone SE, small phones */
+  .cloud-theme {
+    --dynamic-padding: 6px;
+    --dynamic-gap: 4px;
+    --dynamic-font: 11px;
+    --dynamic-heading: 16px;
+  }
+}
+
+@media (min-width: 376px) and (max-width: 430px) {
+  /* iPhone 12-15 Pro Max range */
+  .cloud-theme {
+    --dynamic-padding: 10px;
+    --dynamic-gap: 6px;
+    --dynamic-font: 13px;
+    --dynamic-heading: 20px;
+  }
+}
+
+@media (min-width: 431px) and (max-width: 600px) {
+  /* Larger phones */
+  .cloud-theme {
+    --dynamic-padding: 12px;
+    --dynamic-gap: 8px;
+    --dynamic-font: 14px;
+    --dynamic-heading: 24px;
+  }
+}
+
+/* Landscape orientation adjustments */
+@media (max-width: 900px) and (orientation: landscape) {
+  .cloud-theme {
+    --dynamic-padding: 8px;
+    --dynamic-gap: 6px;
+  }
+  
+  .desktop-web-topbar {
+    height: 44px!important;
+    min-height: 44px!important;
+  }
+  
+  .desktop-conversation-heading {
+    min-height: 44px!important;
+  }
+  
+  .desktop-welcome {
+    padding-top: 20px!important;
+    padding-bottom: 20px!important;
+  }
+}
+
+/* Apply dynamic sizing to key components */
+@media(max-width:600px) {
+  .cloud-theme .desktop-web-topbar {
+    padding-left: var(--dynamic-padding);
+    padding-right: var(--dynamic-padding);
+    gap: var(--dynamic-gap);
+  }
+  
+  .cloud-theme .desktop-build .build-control-room {
+    padding: var(--dynamic-padding);
+    gap: var(--dynamic-gap);
+  }
+  
+  .cloud-theme .desktop-build .build-mission {
+    padding: var(--dynamic-padding);
+  }
+  
+  .cloud-theme .desktop-build .mission-heading h1 {
+    font-size: var(--dynamic-heading);
+  }
+  
+  .cloud-theme .desktop-composer-wrap {
+    padding: var(--dynamic-padding);
+  }
+  
+  .cloud-theme .desktop-welcome {
+    padding-left: var(--dynamic-padding);
+    padding-right: var(--dynamic-padding);
+  }
+  
+  .cloud-theme .message-content {
+    font-size: var(--dynamic-font);
+  }
+  
+  /* Responsive touch targets - minimum 44x44px per iOS guidelines */
+  .cloud-theme button,
+  .cloud-theme a[role=button] {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .cloud-theme .desktop-web-topbar nav button,
+  .cloud-theme .desktop-web-topbar nav a {
+    min-height: 40px;
+    padding: 10px var(--dynamic-padding);
+  }
+}
+
+/* Pixel-perfect for common devices */
+@media (width: 390px) { /* iPhone 12-15 Pro */
+  .cloud-theme { --dynamic-padding: 10px; --dynamic-gap: 6px; }
+}
+
+@media (width: 393px) { /* iPhone 14 Pro */
+  .cloud-theme { --dynamic-padding: 10px; --dynamic-gap: 6px; }
+}
+
+@media (width: 430px) { /* iPhone 14 Pro Max */
+  .cloud-theme { --dynamic-padding: 12px; --dynamic-gap: 8px; }
+}
+
+@media (width: 360px) { /* Samsung Galaxy */
+  .cloud-theme { --dynamic-padding: 8px; --dynamic-gap: 5px; }
+}
+
+@media (width: 375px) { /* iPhone SE, 11 Pro */
+  .cloud-theme { --dynamic-padding: 9px; --dynamic-gap: 5px; }
+}
+
 .cloud-theme {
   --background:230 19% 8%;--foreground:230 18% 92%;--card:230 15% 11%;--card-foreground:230 18% 92%;
   --popover:230 15% 13%;--popover-foreground:230 18% 92%;--primary:214 80% 62%;--primary-foreground:0 0% 100%;
@@ -57,8 +215,152 @@
 .cloud-theme .appear{animation:sw-enter var(--sw-slow) var(--sw-ease) both}.cloud-theme .animate-pulse{animation:sw-skeleton 1.8s ease-in-out infinite}@keyframes sw-skeleton{50%{opacity:.45}}
 .cloud-theme[data-density=compact] .settings-field{padding:14px 0}.cloud-theme[data-density=spacious] .settings-field{padding:28px 0}.cloud-theme[data-density=compact] .desktop-web-history .group button{padding-top:6px;padding-bottom:6px}.cloud-theme[data-density=spacious] .desktop-web-history .group button{padding-top:12px;padding-bottom:12px}
 @media(max-width:1279px){.cloud-theme .desktop-live-panel{display:none}.cloud-theme .desktop-web-brand{width:220px}.cloud-theme .desktop-web-history{width:220px}}
-@media(max-width:800px){.cloud-theme .desktop-web-shell .desktop-web-topbar{padding:0 10px;gap:10px}.cloud-theme .desktop-web-brand{width:auto;padding:0}.cloud-theme .desktop-web-brand>span:last-child{display:none}.cloud-theme .desktop-web-topbar nav{overflow-x:auto;gap:0;flex:1;justify-content:center}.cloud-theme .desktop-web-topbar nav :is(a,button){padding:18px 9px;font-size:11px;gap:5px}.cloud-theme .desktop-web-topbar nav svg{display:none}.cloud-theme .desktop-web-account{display:block}.sw-account-menu>summary>span:not(.sw-account-avatar),.sw-account-menu>summary>svg{display:none}.cloud-theme .desktop-welcome{padding:55px 24px 30px}.cloud-theme .desktop-welcome h1{font-size:28px}.cloud-theme .desktop-web-history{width:244px}.cloud-theme .desktop-web-conversation .desktop-conversation-heading{padding:0 18px}.cloud-theme .desktop-live-pill{font-size:10px}.cloud-theme .desktop-composer-wrap{padding:12px}.cloud-theme .desktop-web-conversation.desktop-build-welcome{padding:50px 24px 30px}.settings-workspace{grid-template-columns:190px minmax(0,1fr)}.settings-content{padding:28px 24px 50px}.settings-field{grid-template-columns:1fr;gap:10px}.billing-usage-grid{gap:20px}.sw-usage>div{align-items:flex-start;flex-direction:column;gap:5px}.billing-plan-heading>.sw-button{margin-left:0}.transaction-table th,.transaction-table td{padding:12px 8px}.sw-file-browser>nav{width:140px}.cloud-theme .desktop-build .build-control-room{padding:10px}}
-@media(max-width:600px){.settings-workspace{display:flex;flex-direction:column}.settings-workspace>nav{flex-shrink:0;max-height:190px;border:0;border-bottom:1px solid var(--sw-line);padding:12px 16px;display:flex;gap:12px;align-items:flex-start;overflow:auto}.settings-nav-title{display:none}.settings-search{position:sticky;left:0;background:var(--sw-sunken);flex-shrink:0;width:130px;z-index:2;margin:24px 0 0}.settings-workspace>nav>div:not(.settings-nav-title){flex-shrink:0}.settings-workspace>nav h2{padding:0 8px 8px}.settings-workspace>nav button{padding:6px 8px;white-space:nowrap}.settings-content{flex:1;min-height:0;padding:24px 20px 40px}.settings-page-header h1{font-size:26px}.settings-body{padding-top:22px}.settings-save-bar{flex-direction:column;align-items:stretch}.billing-model-controls summary>span{float:none;display:block;margin:6px 0 0}.billing-usage-grid{gap:16px}.billing-plan-heading h2{font-size:22px}.billing-plan-heading{gap:12px}.billing-plan-heading>.sw-button{width:100%}.transaction-table table{min-width:460px}.sw-dialog{padding:22px 18px}.sw-dialog h2{font-size:23px}.plan-comparison{grid-template-columns:1fr;gap:14px}.sw-plan{padding:20px}.download-grid{grid-template-columns:1fr;gap:32px}.downloads-workspace{padding:32px 24px}.downloads-workspace h1{font-size:30px}.sw-file-browser{flex-direction:column}.sw-file-browser>nav{width:100%;max-height:120px;border-right:0;border-bottom:1px solid var(--sw-line)}.sw-file-browser>section{padding:10px}.cloud-theme .desktop-composer-wrap [data-testid=form-chat-composer]{padding:10px}.cloud-theme .desktop-composer-wrap textarea{font-size:16px}.cloud-theme .desktop-conversation-heading p{font-size:10px}.cloud-theme .desktop-live-pill{display:none}.sw-build-phases{gap:12px;font-size:10px}}
+@media(max-width:800px){.cloud-theme .desktop-web-shell .desktop-web-topbar{padding:0 10px;gap:10px}.cloud-theme .desktop-web-brand{width:auto;padding:0}.cloud-theme .desktop-web-brand>span:last-child{display:none}.cloud-theme .desktop-web-topbar nav{overflow-x:auto;gap:0;flex:1;justify-content:center;scrollbar-width:thin}.cloud-theme .desktop-web-topbar nav :is(a,button){padding:16px 10px;font-size:11px;gap:5px;white-space:nowrap}.cloud-theme .desktop-web-topbar nav svg{flex-shrink:0}.cloud-theme .desktop-web-account{display:block}.sw-account-menu>summary>span:not(.sw-account-avatar),.sw-account-menu>summary>svg{display:none}.cloud-theme .desktop-welcome{padding:50px 20px 28px}.cloud-theme .desktop-welcome h1{font-size:26px}.cloud-theme .desktop-web-history{width:240px}.cloud-theme .desktop-web-conversation .desktop-conversation-heading{padding:0 16px}.cloud-theme .desktop-live-pill{font-size:10px}.cloud-theme .desktop-composer-wrap{padding:10px}.cloud-theme .desktop-web-conversation.desktop-build-welcome{padding:45px 20px 28px}.settings-workspace{grid-template-columns:190px minmax(0,1fr)}.settings-content{padding:28px 24px 50px}.settings-field{grid-template-columns:1fr;gap:10px}.billing-usage-grid{gap:20px}.sw-usage>div{align-items:flex-start;flex-direction:column;gap:5px}.billing-plan-heading>.sw-button{margin-left:0}.transaction-table th,.transaction-table td{padding:12px 8px}.sw-file-browser>nav{width:140px}.cloud-theme .desktop-build .build-control-room{padding:10px;gap:10px}.cloud-theme .desktop-build .mission-heading h1{font-size:16px}.cloud-theme .desktop-build .build-segment button{font-size:11px;padding:7px 11px}
+
+  /* Improved tablet experience */
+  .cloud-theme .desktop-welcome-suggestions{flex-wrap:wrap;gap:8px}
+  .cloud-theme .desktop-welcome-suggestions button{flex:1 1 calc(50% - 4px);min-width:140px}
+  .cloud-theme .message-content{font-size:13.5px}
+  .cloud-theme .sw-message-user{padding:14px 16px}
+  .cloud-theme .sw-message-assistant{padding:20px 0}
+}
+/* Phone optimizations - 600px and below */
+@media(max-width:600px){
+  /* HIDE build phases on phone for more space */
+  .sw-build-phases{display:none!important}
+  
+  /* Settings workspace */
+  .settings-workspace{display:flex;flex-direction:column}
+  .settings-workspace>nav{flex-shrink:0;max-height:190px;border:0;border-bottom:1px solid var(--sw-line);padding:12px 16px;display:flex;gap:12px;align-items:flex-start;overflow:auto}
+  .settings-nav-title{display:none}
+  .settings-search{position:sticky;left:0;background:var(--sw-sunken);flex-shrink:0;width:130px;z-index:2;margin:24px 0 0}
+  .settings-workspace>nav>div:not(.settings-nav-title){flex-shrink:0}
+  .settings-workspace>nav h2{padding:0 8px 8px}
+  .settings-workspace>nav button{padding:6px 8px;white-space:nowrap}
+  .settings-content{flex:1;min-height:0;padding:24px 20px 40px}
+  .settings-page-header h1{font-size:26px}
+  .settings-body{padding-top:22px}
+  .settings-save-bar{flex-direction:column;align-items:stretch}
+
+  /* Mobile settings navigation - visible on small screens */
+  .settings-mobile-nav{display:flex;gap:10px;padding:12px 16px;border-bottom:1px solid var(--sw-line);background:var(--sw-bg);position:sticky;top:0;z-index:10}
+  .settings-mobile-nav .settings-search{width:100%;margin:0;flex:1}
+  .settings-mobile-nav select{background:var(--sw-panel);border:1px solid var(--sw-line);padding:10px 32px 10px 12px;border-radius:6px;font-size:12px;font-weight:500;width:100%;cursor:pointer}
+
+  .billing-model-controls summary>span{float:none;display:block;margin:6px 0 0}
+  .billing-usage-grid{gap:16px}
+  .billing-plan-heading h2{font-size:22px}
+  .billing-plan-heading{gap:12px}
+  .billing-plan-heading>.sw-button{width:100%}
+  .transaction-table table{min-width:460px}
+  .sw-dialog{padding:22px 18px}
+  .sw-dialog h2{font-size:23px}
+  .plan-comparison{grid-template-columns:1fr;gap:14px}
+  .sw-plan{padding:20px}
+  .download-grid{grid-template-columns:1fr;gap:32px}
+  .downloads-workspace{padding:32px 24px}
+  .downloads-workspace h1{font-size:30px}
+  .sw-file-browser{flex-direction:column}
+  .sw-file-browser>nav{width:100%;max-height:120px;border-right:0;border-bottom:1px solid var(--sw-line)}
+  .sw-file-browser>section{padding:10px}
+  .cloud-theme .desktop-composer-wrap [data-testid=form-chat-composer]{padding:10px}
+  .cloud-theme .desktop-composer-wrap textarea{font-size:16px}
+  .cloud-theme .desktop-conversation-heading p{font-size:10px}
+  .cloud-theme .desktop-live-pill{display:none}
+  .sw-build-phases{gap:12px;font-size:10px}
+
+  /* Mobile Build UI fixes */
+  .cloud-theme .desktop-web-shell .desktop-web-topbar{height:50px;min-height:50px;padding:0 8px;gap:8px}
+  .cloud-theme .desktop-web-topbar nav :is(a,button){padding:14px 6px;font-size:10px;gap:4px;min-width:fit-content}
+  .cloud-theme .desktop-web-history{width:100%;position:fixed;z-index:100;background:var(--sw-sunken);box-shadow:var(--sw-shadow)}
+  .cloud-theme .desktop-web-conversation.desktop-build-welcome{padding:40px 16px 20px}
+  .cloud-theme .desktop-build-welcome .desktop-welcome{padding:0;max-width:100%}
+  .cloud-theme .desktop-build-welcome h1{font-size:22px;line-height:1.3}
+  .cloud-theme .desktop-build-welcome p{font-size:13px}
+  .cloud-theme .desktop-build-welcome .desktop-welcome-suggestions{margin:20px 0;gap:6px;flex-wrap:wrap}
+  .cloud-theme .desktop-build-welcome .desktop-welcome-suggestions button{padding:8px 12px;font-size:11px;flex:1 1 auto;min-width:45%}
+
+  /* Build control room mobile fixes */
+  .cloud-theme .desktop-build .build-control-room{padding:8px;gap:8px;flex-direction:column}
+  .cloud-theme .desktop-build .build-mission{padding:6px 10px 14px}
+  .cloud-theme .desktop-build .mission-heading h1{font-size:15px;line-height:1.3}
+  .cloud-theme .desktop-build .mission-objective{font-size:11px;line-height:1.5}
+  .cloud-theme .desktop-build .build-agent-panel{margin-bottom:8px}
+  .cloud-theme .desktop-build .build-panel-heading{padding:10px 12px;font-size:12px}
+  .cloud-theme .desktop-build .build-segment{padding:8px;gap:6px;flex-wrap:wrap}
+  .cloud-theme .desktop-build .build-segment button{font-size:10px;padding:6px 10px;min-width:fit-content;white-space:nowrap}
+  .cloud-theme .desktop-build .build-task-list{padding:10px}
+  .cloud-theme .desktop-build .build-task-list button{padding:8px;font-size:11px}
+
+  /* Conversation heading mobile */
+  .cloud-theme .desktop-conversation-heading{height:auto!important;min-height:50px;flex-wrap:wrap;gap:8px;padding:10px 12px!important}
+  .cloud-theme .desktop-conversation-heading>div{gap:8px;flex-wrap:wrap}
+  .cloud-theme .desktop-conversation-heading button{padding:6px}
+  .cloud-theme .desktop-conversation-heading strong{font-size:12px}
+
+  /* Composer mobile fixes */
+  .cloud-theme .desktop-composer-wrap{padding:8px;background:var(--sw-bg)}
+  .cloud-theme .desktop-composer-wrap textarea{min-height:70px;font-size:15px;line-height:1.5}
+  .cloud-theme .desktop-composer-wrap [data-testid=button-send-message]{width:34px;height:34px;border-radius:6px}
+  .cloud-theme .desktop-composer-wrap>div>p{font-size:10px;margin-top:8px}
+
+  /* Welcome screen mobile */
+  .cloud-theme .desktop-welcome{padding:45px 20px 25px}
+  .cloud-theme .desktop-welcome h1{font-size:24px;margin:14px 0}
+  .cloud-theme .desktop-welcome p{font-size:13px;line-height:1.7}
+  .sw-welcome-emblem{width:44px;height:44px;margin-bottom:20px}
+  .sw-welcome-emblem img{width:30px;height:38px}
+
+  /* Build welcome eyebrow */
+  .cloud-theme .sw-build-introbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+  .cloud-theme .desktop-build-eyebrow{font-size:9px;letter-spacing:.14em}
+  .cloud-theme .sw-build-introbar button{font-size:10px;padding:6px 10px;display:flex;align-items:center;gap:6px;background:var(--sw-hover);border:1px solid var(--sw-line);border-radius:6px}
+
+  /* Message area mobile */
+  .cloud-theme .desktop-message-area{padding:0}
+  .cloud-theme .sw-message-user{margin:12px 0 6px;padding:12px 14px;border-radius:8px}
+  .cloud-theme .sw-message-assistant{padding:16px 0}
+  .cloud-theme .message-content{font-size:13px;line-height:1.75}
+
+  /* Build phases mobile */
+  .sw-build-phases{padding:8px 12px;gap:10px;font-size:10px;scrollbar-width:thin}
+  .sw-build-phases>span{gap:5px;font-size:10px}
+
+  /* File browser mobile */
+  .sw-file-browser{min-height:400px}
+  .sw-file-browser>nav{padding:6px;gap:4px}
+  .sw-file-browser>nav button{padding:8px 6px;font-size:10px;gap:5px}
+  .sw-file-browser>section{padding:8px}
+  .cloud-theme .cloud-code-card{margin:8px 0;border-radius:6px}
+  .cloud-theme .cloud-code-card>div{padding:8px 12px;font-size:11px}
+  .cloud-theme .cloud-code-card pre{font-size:11px;padding:12px;max-height:320px;line-height:1.6}
+
+  /* Account menu mobile */
+  .sw-account-menu>summary{padding:4px;gap:6px;font-size:11px}
+  .sw-account-avatar{width:26px;height:26px;border-radius:6px}
+  .sw-account-popover{min-width:180px;padding:6px;right:0;left:auto}
+  .sw-account-popover>a{padding:8px;font-size:11px;gap:6px}
+
+  /* Responsive text sizing */
+  .cloud-theme .sw-error,.cloud-theme .sw-notice{padding:10px 12px;font-size:12px;line-height:1.6}
+  .cloud-theme .sw-empty{padding:28px 16px}
+  .cloud-theme .sw-empty strong{font-size:13px}
+  .cloud-theme .sw-empty p{font-size:12px;max-width:35ch}
+
+  /* Provider link mobile */
+  .cloud-theme .desktop-provider-link{font-size:11px;padding:8px 12px;background:var(--sw-hover);border:1px solid var(--sw-line);border-radius:6px;display:inline-flex;align-items:center;gap:6px;margin-top:16px}
+
+  /* History sidebar mobile overlay */
+  .cloud-theme .desktop-web-history.desktop-web-history{width:280px;max-width:85vw;box-shadow:var(--sw-shadow)}
+
+  /* Better touch targets */
+  .cloud-theme button,.cloud-theme a{min-height:36px;display:inline-flex;align-items:center;justify-content:center}
+
+  /* Scrollable tabs */
+  .cloud-theme .desktop-build .build-tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+  .cloud-theme .desktop-build .build-tabs::-webkit-scrollbar{height:3px}
+  .cloud-theme .desktop-build .build-tabs::-webkit-scrollbar-thumb{background:var(--sw-muted);border-radius:3px}
+}
 @media(prefers-reduced-motion:reduce){.cloud-theme *,.cloud-theme *::before,.cloud-theme *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 .cloud-theme[data-motion=off] *,.cloud-theme[data-motion=off] *::before,.cloud-theme[data-motion=off] *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 
@@ -68,7 +370,23 @@
 .sw-auth-page{background:var(--sw-bg);color:var(--sw-text)}.sw-auth-card{background:var(--sw-panel);border:1px solid var(--sw-line);border-radius:12px;box-shadow:var(--sw-shadow)}.sw-auth-logo{filter:none}.conversation-dialog{max-width:460px}.conversation-dialog form>header{display:flex;align-items:center;justify-content:space-between;gap:16px}.conversation-dialog form>p{font-size:13px;line-height:1.8;color:var(--sw-muted);margin:18px 0}.conversation-dialog label{display:block;font-size:12px;margin:20px 0}.conversation-dialog input{display:block;width:100%;border:1px solid var(--sw-line);padding:10px 12px;border-radius:6px;background:var(--sw-bg);margin-top:8px}.conversation-dialog footer{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}.command-dialog{max-width:500px}.command-dialog>label{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--sw-line);padding-bottom:16px}.command-dialog input{flex:1;min-width:0;background:none;outline:0;font-size:13px}.command-dialog nav{padding:12px 0}.command-dialog nav a{display:flex;gap:12px;align-items:center;padding:12px;border-radius:6px;font-size:13px}.command-dialog nav a:hover{background:var(--sw-accent-soft)}.command-dialog small{font-size:11px;color:var(--sw-muted)}
 @media(max-width:800px){.cloud-theme .desktop-web-brand .sw-original-wordmark{display:none}.sw-command-trigger{display:none}.cloud-theme .desktop-web-account{gap:4px}.sw-theme-button{width:30px;height:30px}.cloud-theme .desktop-web-topbar nav :is(a,button){padding-left:7px;padding-right:7px}}
 
-@media(max-width:1100px){.cloud-theme .desktop-build[data-mobile-tab=graph] .build-graph-surface{flex:1!important}}
+@media(max-width:1100px){.cloud-theme .desktop-build[data-mobile-tab=graph] .build-graph-surface{flex:1!important}.cloud-theme .desktop-build .build-tabs{display:flex;overflow-x:auto;scrollbar-width:thin}.cloud-theme .desktop-build .build-tabs button{flex-shrink:0;min-width:fit-content}}
+
+/* Extra small phones */
+@media(max-width:400px){
+  .cloud-theme .desktop-web-topbar{height:48px;min-height:48px;padding:0 6px}
+  .cloud-theme .desktop-web-brand{padding-left:0}
+  .cloud-theme .desktop-web-brand img{width:22px;height:22px}
+  .cloud-theme .desktop-web-topbar nav :is(a,button){padding:14px 6px;font-size:10px;gap:3px}
+  .cloud-theme .desktop-welcome h1{font-size:20px}
+  .cloud-theme .desktop-welcome p{font-size:12px}
+  .cloud-theme .desktop-build-welcome h1{font-size:20px}
+  .cloud-theme .desktop-build .mission-heading h1{font-size:14px}
+  .cloud-theme .desktop-build .build-segment button{font-size:10px;padding:6px 9px}
+  .cloud-theme .desktop-composer-wrap textarea{font-size:14px}
+  .sw-account-avatar{width:24px;height:24px}
+  .cloud-theme .message-content{font-size:12.5px}
+}
 
 .pricing-workspace{background:var(--sw-bg);color:var(--sw-text)}.pricing-toolbar{display:flex;align-items:center;justify-content:space-between}.pricing-toolbar>a{display:flex;align-items:center;gap:20px}.pricing-toolbar img{width:90px;height:20px;object-fit:contain}.pricing-workspace[data-theme=dark] .pricing-toolbar img{filter:brightness(0) invert(1)}.pricing-workspace :is(.text-slate-500,.text-slate-600){color:var(--sw-muted)}.pricing-workspace :is(.bg-white,.bg-blue-50){background:var(--sw-panel)}.pricing-workspace :is(.border-slate-200,.border-blue-200){border-color:var(--sw-line)}.pricing-workspace .bg-blue-600{background:var(--sw-signal)}.pricing-workspace :is(.text-blue-600,.sw-plan-featured h2){color:var(--sw-signal)}.pricing-workspace .rounded-full{border-radius:6px}.pricing-workspace .sw-plan-featured{background:var(--sw-accent-soft)}
 
@@ -90,3 +408,16 @@
 
 .cloud-theme .cloud-code-card .sw-code-download{background:var(--sw-signal)!important;color:#fff!important;min-height:36px;border-radius:6px}.cloud-theme[data-theme=dark] .cloud-code-card .sw-code-download{color:#101724!important}.cloud-theme .motion-task{border-color:var(--sw-line);background:var(--sw-panel);color:var(--sw-text)}.cloud-theme .motion-task[data-motion-state=running]{border-color:var(--sw-signal)}.cloud-theme .motion-task[data-motion-state=failed]{border-color:var(--sw-error)}
 @media(max-width:640px){.desktop-build:is([data-mobile-tab=files],[data-mobile-tab=preview]) .build-activity-tabs{display:none}.desktop-build .build-activity-tabs :is([data-output=files],[data-output=preview]){display:none}.cloud-theme .desktop-build .build-activity-tabs{flex-wrap:nowrap;overflow:auto;min-height:48px}}
+@media(max-width:700px){
+  .cloud-theme .desktop-web-history{background:var(--sw-sunken)!important;z-index:50;box-shadow:12px 0 36px #10223a24}
+  .cloud-theme .desktop-web-workspace>button[aria-label="Close conversation history"]{z-index:40}
+  .cloud-theme .desktop-composer-wrap>div>p{display:none}
+  .cloud-theme .desktop-composer-wrap [data-testid=button-send-message]{min-width:44px;min-height:44px}
+  .cloud-theme .desktop-web-conversation{min-height:0}
+  .cloud-theme .desktop-web-conversation.desktop-build-welcome{overflow-y:auto;overscroll-behavior:contain;padding:16px 16px max(16px,env(safe-area-inset-bottom))}
+  .cloud-theme .desktop-build-welcome .desktop-message-area{flex:none;min-height:auto}
+  .cloud-theme .desktop-build-welcome .desktop-message-area>.scroll-thin{height:auto;overflow:visible}
+  .cloud-theme .desktop-build-welcome .desktop-welcome{padding:12px 0 16px}
+  .cloud-theme .desktop-build-welcome .desktop-composer-wrap{flex:none}
+  .cloud-theme .desktop-build-welcome textarea{min-height:72px}
+}

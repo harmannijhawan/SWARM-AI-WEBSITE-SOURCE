@@ -5,10 +5,10 @@
 
 import {test} from 'node:test';
 import assert from 'node:assert';
-import {handleApi} from '../lib/server/backend';
+import {handleApi,accountDatabase} from '../lib/server/backend';
+import {issueDevice} from '../lib/server/accounts';
 
 // Configure test environment
-process.env.SWARM_DATA_DIR=require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(),'swarm-auth-flow-'));
 process.env.CLERK_SECRET_KEY='test-only-device-auth-fixture';
 process.env.GROQ_API_KEY='test-key-fixture';
 process.env.SWARM_STANDARD_MODELS='groq:test-model';
@@ -69,7 +69,7 @@ test('Cross-origin requests are rejected',async()=>{
   assert.match(data.error,/Cross-origin/i);
 });
 
-test('Missing configuration returns 503 with proper error',async()=>{
+test('Missing optional managed-provider configuration does not disable account APIs',async()=>{
   // Temporarily clear required config
   const originalModels=process.env.SWARM_STANDARD_MODELS;
   delete process.env.SWARM_STANDARD_MODELS;
@@ -78,9 +78,11 @@ test('Missing configuration returns 503 with proper error',async()=>{
   (globalThis as any).swarmWeb=undefined;
   
   try {
-    const response=await request('models');
-    assert.equal(response.status,401); // Authentication precedes provider availability.
-    const data=await response.json();assert.match(data.error,/Sign in/i);
+    const token=await issueDevice(accountDatabase(),'config-fixture','test');
+    const response=await request('models','GET',undefined,'http://localhost:3000',{Authorization:'Bearer '+token});
+    assert.equal(response.status,200);
+    const data=await response.json();
+    assert.deepEqual(data.models,[]);
   } finally {
     // Restore config
     process.env.SWARM_STANDARD_MODELS=originalModels;
@@ -118,21 +120,23 @@ test('API error responses include error messages without leaking secrets',async(
 });
 
 test('Invalid JSON body returns 400',async()=>{
+  const token=await issueDevice(accountDatabase(),'invalid-json-fixture','test');
   const response=await handleApi(
     new Request('http://localhost:3000/api/conversations',{
       method:'POST',
       headers:{
         Origin:'http://localhost:3000',
-        'Content-Type':'application/json'
+        'Content-Type':'application/json',
+        Authorization:'Bearer '+token
       },
       body:'invalid json {'
     }),
     ['conversations']
   );
   
-  assert.equal(response.status,401); // Unauthenticated input is not parsed.
+  assert.equal(response.status,400);
   const data=await response.json();
-  assert.match(data.error,/Sign in/i);
+  assert.match(data.error,/Invalid JSON/i);
 });
 
 test('Model allowlist filtering works correctly',async()=>{

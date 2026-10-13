@@ -112,5 +112,41 @@
   .desktop-build .build-mission {flex-wrap:wrap;gap:10px;padding:10px;}
 }
 
+/* Phone optimizations - 600px and below */
+@media(max-width:600px){
+  /* HIDE build phases for more space */
+  .desktop-build .sw-build-phases {display:none!important}
+  
+  .desktop-build .build-mobile-tabs {padding:6px 10px;gap:3px;scrollbar-width:thin;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .desktop-build .build-mobile-tabs button {font-size:10px;padding:6px 10px;white-space:nowrap;flex-shrink:0}
+  .desktop-build .build-control-room {padding:0 8px 8px;gap:8px;flex-direction:column}
+  .desktop-build .build-mission {padding:8px 10px;gap:8px}
+  .desktop-build .mission-heading h1 {font-size:clamp(14px, 4.5vw, 18px);line-height:1.3}
+  .desktop-build .mission-objective {font-size:11px}
+  .desktop-build .mission-counts {gap:8px;flex-wrap:wrap}
+  .desktop-build .build-segment {padding:6px;gap:4px}
+  .desktop-build .build-segment button {font-size:10px;padding:5px 8px}
+  .desktop-build .build-task-list {padding:8px}
+  .desktop-build .build-task-list button {padding:8px;font-size:11px}
+  .desktop-build .build-agent-panel {padding:8px}
+  .desktop-build .build-panel-heading {padding:8px 10px;font-size:11px}
+  .desktop-build .build-activity-tabs {padding:4px 6px;gap:3px}
+  .desktop-build .build-activity-tabs button {padding:6px 8px;font-size:9px}
+  .desktop-build .build-stage-scroll {padding:10px;font-size:11px}
+  .desktop-build .workforce-node {padding:8px;min-width:auto}
+  .desktop-build .workforce-icon {width:28px;height:28px}
+  .web-runtime-toolbar {padding:6px 10px;font-size:9px}
+  .web-runtime-toolbar button {padding:5px}
+  .web-runtime-empty {padding:20px;max-width:95%}
+  .web-runtime-empty p {font-size:10px}
+  
+  /* Dynamic safe area support */
+  .desktop-build .build-control-room {
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+}
+
 .desktop-build .build-activity-tabs{gap:4px;overflow-x:auto;flex-shrink:0;display:flex;padding:5px 8px}.desktop-build .build-activity-tabs button{display:flex;align-items:center;gap:6px;padding:7px 9px;border-radius:6px;font-size:10px;white-space:nowrap;color:var(--fg-2)}.desktop-build .build-activity-tabs button[aria-selected=true]{color:var(--accent);background:var(--accent-soft)}.desktop-build .build-stage-scroll{flex:1;min-height:0;overflow:auto;padding:16px;font-size:12px}.desktop-build .build-stage-scroll article{border-bottom:1px solid var(--line);padding:14px 0}.web-runtime-preview{display:flex;flex-direction:column;flex:1;min-height:0}.web-runtime-toolbar{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line);background:var(--panel);font-size:10px;color:var(--fg-2)}.web-runtime-toolbar>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.web-runtime-toolbar>div{display:flex;gap:3px}.web-runtime-toolbar button{display:flex;padding:6px;border-radius:5px}.web-runtime-toolbar button[aria-pressed=true]{background:var(--accent-soft);color:var(--accent)}.web-runtime-viewport{display:flex;flex:1;min-height:0;overflow:auto;justify-content:center;background:var(--sunken)}.web-runtime-viewport iframe{border:0;flex-shrink:0;max-width:100%;min-height:100%;background:white}.web-runtime-empty{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:12px;max-width:450px;text-align:center;padding:25px;color:var(--fg-2)}.web-runtime-empty p{font-size:11px;line-height:1.7;color:var(--fg-3)}
 @media(max-width:1100px){.desktop-build[data-mobile-tab=preview] .build-graph-surface{display:none}.desktop-build[data-mobile-tab=preview] .build-activity-surface{flex:1;height:auto}}

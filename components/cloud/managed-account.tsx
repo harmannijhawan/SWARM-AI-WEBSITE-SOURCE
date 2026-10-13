@@ -17,7 +17,6 @@ function loadCheckout() {
 }
 export function ManagedAccount({ compact = false }: { compact?: boolean }) {
   const [state, setState] = useState<any>(null), [history, setHistory] = useState<any[]>([]), [error, setError] = useState(''), [busy, setBusy] = useState(false), [phone, setPhone] = useState('');
-  const [checkoutPlan,setCheckoutPlan]=useState<'pro'|'max'>('pro');
   const [requestId, setRequestId] = useState('');
   const [paymentNotice,setPaymentNotice]=useState('');
   const [retryCount, setRetryCount] = useState(0);
@@ -27,11 +26,11 @@ export function ManagedAccount({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     if (state && !handledUpgradeLink.current) {
       handledUpgradeLink.current = true;
-      const tier=new URLSearchParams(window.location.search).get('upgrade');if(['pro','max'].includes(tier||'')&&!state.unlimited){setCheckoutPlan(tier as 'pro'|'max');setUpgradeOpen(true);}
+      if (new URLSearchParams(window.location.search).get('upgrade') === 'pro' && !state.unlimited) setUpgradeOpen(true);
     }
   }, [state]);
   useEffect(() => {
-    const open = () => { if(state&&!state.unlimited){setCheckoutPlan(state.plan.id==='pro'||state.plan.id==='max'?'max':'pro');setRequestId('');setUpgradeOpen(true);} };
+    const open = () => { if (state && !state.unlimited && state.plan.id !== 'pro') setUpgradeOpen(true); };
     window.addEventListener('swarm:upgrade', open);
     return () => window.removeEventListener('swarm:upgrade', open);
   }, [state]);
@@ -79,7 +78,7 @@ export function ManagedAccount({ compact = false }: { compact?: boolean }) {
   useEffect(() => { if (compact) return;const id = new URLSearchParams(location.search).get('order_id');if (id) void action(() => verify(id)); }, []);
   async function upgrade() {
     const id = requestId || crypto.randomUUID();setRequestId(id);
-    const order = await call('billing/checkout', { plan: checkoutPlan, phone, requestId: id });
+    const order = await call('billing/checkout', { plan: 'pro', phone, requestId: id });
     await loadCheckout();
     const factory = (window as any).Cashfree;
     if (!['sandbox','production'].includes(order.mode)) throw new Error('Invalid checkout environment.');
@@ -90,7 +89,7 @@ export function ManagedAccount({ compact = false }: { compact?: boolean }) {
     await verify(order.orderId);setRequestId('');setUpgradeOpen(false);
     window.dispatchEvent(new Event('swarm:usage'));
   }
-  return <BillingView checkoutPlan={checkoutPlan} setCheckoutPlan={plan=>{setCheckoutPlan(plan);setRequestId('');}} paymentNotice={paymentNotice} state={state} history={history} error={error} busy={busy} compact={compact} phone={phone} setPhone={setPhone} setUpgradeOpen={setUpgradeOpen} dialogRef={dialogRef} retry={()=>{setRetryCount(c=>c+1);setError('');}} action={action} load={load} verify={verify} upgrade={upgrade} preferences={async(profile,speed)=>{await call('account/model-preferences',{profile,speed});}}/>;
+  return <BillingView paymentNotice={paymentNotice} state={state} history={history} error={error} busy={busy} compact={compact} phone={phone} setPhone={setPhone} setUpgradeOpen={setUpgradeOpen} dialogRef={dialogRef} retry={()=>{setRetryCount(c=>c+1);setError('');}} action={action} load={load} verify={verify} upgrade={upgrade} preferences={async(profile,speed)=>{await call('account/model-preferences',{profile,speed});}}/>;
 }
 
 export function PlanUpgradeButton() {

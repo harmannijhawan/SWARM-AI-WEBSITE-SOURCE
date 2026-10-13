@@ -26,21 +26,22 @@ export const openrouter: ProviderAdapter = {
     const out: DiscoveredModel[] = [];
     for (const m of res.data) {
       const free = m.pricing && Number(m.pricing.prompt ?? 1) === 0 && Number(m.pricing.completion ?? 1) === 0 && Number(m.pricing.request ?? 0) === 0;
-      if (!free) continue; // free-first: only $0 models are registered
+      // BYOK authorizes discovered paid models as well; provider billing remains external.
       if (!isChatModel(m.id) || (m.architecture?.output_modalities && !m.architecture.output_modalities.includes('text'))) continue;
       if (m.id === 'openrouter/auto') continue;
       out.push({
         modelId: m.id,
         displayName: m.name.replace(/\s*\(free\)\s*$/i, ''),
         capabilities: inferCapabilities(m.id, {
-          vision: m.architecture?.input_modalities?.includes('image') ?? undefined,
+          vision: m.architecture?.input_modalities?.includes('image') ?? false,
           tools: m.supported_parameters?.includes('tools') ?? undefined,
-          reasoning: m.supported_parameters?.includes('reasoning') || undefined,
+          json: m.supported_parameters?.includes('response_format') ?? false,
+          reasoning: m.supported_parameters?.includes('reasoning') || false,
           long_context: (m.context_length ?? 0) >= 100_000 || undefined,
         }),
         contextLength: m.context_length ?? null,
         maxOutput: m.top_provider?.max_completion_tokens ?? null,
-        freeStatus: 'free',
+        freeStatus: free ? 'free' : 'paid',
       });
     }
     return out;

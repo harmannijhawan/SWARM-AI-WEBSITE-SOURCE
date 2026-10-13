@@ -5,13 +5,13 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-val PrimaryBlue = Color(0xFF2463FF)
+val PrimaryBlue = Color(0xFF216BD0)
 val PrimaryDarkBlue = Color(0xFF0060DF)
 val SecondaryOrange = Color(0xFFFF9F0A)
-val BackgroundGray = Color(0xFFF8F9FE)
+val BackgroundGray = Color(0xFFF8FAFC)
 val SurfaceWhite = Color(0xFFFFFFFF)
 val OnPrimaryWhite = Color(0xFFFFFFFF)
-val OnSurfaceDark = Color(0xFF101522)
+val OnSurfaceDark = Color(0xFF0F172A)
 val DividerGray = Color(0xFFC6C6C8)
 val SuccessGreen = Color(0xFF34C759)
 val ErrorRed = Color(0xFFFF3B30)

@@ -1,4 +1,6 @@
 'use client';
+import { ProviderKeys } from './provider-keys';
+import { SetupWizard, usePreferences } from './setup-wizard';
 import { ManagedAccount, PlanUpgradeButton } from './managed-account';
 import { DownloadsWorkspace } from './downloads-workspace';
 import { CopyButton } from './design-system';
@@ -105,7 +107,16 @@ function dateGroup(iso: string) {
   const age = Math.round((today.getTime() - day.getTime()) / 86400000);
   return age === 0 ? 'Today' : age === 1 ? 'Yesterday' : age < 7 ? 'Previous 7 days' : 'Older';
 }
-function ChatApp() { const [mode,setMode]=useState<ResponseMode>('chat');const changeMode=(next:ResponseMode)=>{setMode(next);const url=new URL(window.location.href);url.searchParams.set('mode',next==='swarm'?'build':'chat');window.history.replaceState(null,'',url);};return <PrivateShell mode={mode} onMode={changeMode}><Workspace mode={mode} setMode={changeMode}/></PrivateShell>; }
+/** Shows first-run setup until onboarding is completed (or on /app?setup=1); never blocks the workspace if preferences cannot load. */
+function ChatApp() {
+  const prefs=usePreferences();const [forceSetup,setForceSetup]=useState<boolean|null>(null);
+  useEffect(()=>{setForceSetup(new URLSearchParams(window.location.search).has('setup'));},[]);
+  if(forceSetup===null||prefs.isLoading)return <div className="sx-boot" role="status" aria-label="Loading your workspace"><img src="/brand/swarm-mark.png" alt=""/></div>;
+  const needsSetup=forceSetup||(!!prefs.data&&!prefs.data.preferences.onboarding?.completedAt);
+  if(needsSetup)return <SetupWizard onFinished={()=>{const url=new URL(window.location.href);url.searchParams.delete('setup');window.history.replaceState(null,'',url);setForceSetup(false);void prefs.refetch();}}/>;
+  return <WorkspaceApp/>;
+}
+function WorkspaceApp() { const [mode,setMode]=useState<ResponseMode>('chat');const changeMode=(next:ResponseMode)=>{setMode(next);const url=new URL(window.location.href);url.searchParams.set('mode',next==='swarm'?'build':'chat');window.history.replaceState(null,'',url);};return <PrivateShell mode={mode} onMode={changeMode}><Workspace mode={mode} setMode={changeMode}/></PrivateShell>; }
 
 function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)=>void}) {
   const cache = useQueryClient();
@@ -120,6 +131,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   const [agentEvents, setAgentEvents] = useState<string[]>([]);
   const [buildEvents, setBuildEvents] = useState<BuildEvent[]>([]);
   const [streamError, setStreamError] = useState('');
+  const [routingNotice, setRoutingNotice] = useState('');
   const [retryRequest, setRetryRequest] = useState<{id:string;payload:StreamConversationInput;requestId:string}|null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   useEffect(() => { const media=window.matchMedia('(min-width: 768px)');const update=()=>setSidebarOpen(media.matches);update();media.addEventListener('change',update);return()=>media.removeEventListener('change',update); }, []);
@@ -141,8 +153,10 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   const conversations = conversationsResult?.conversations ?? [];
   const models = modelsResult?.models ?? [];
   const providers = providersResult?.providers ?? [];
-  const validModels = models.filter((model) => providers.find((p) => p.providerId === model.providerId)?.configured);
-  const selectedModel = validModels.length ? {providerId:validModels[0].providerId,modelId:'auto'} : undefined;
+  // /api/models already returns only routable models for this account (personal keys first, then SWARM-managed access).
+  const validModels = models;
+  const configuredProvider = models[0] ?? providers.find(p=>p.configured);
+  const selectedModel = configuredProvider ? {providerId:configuredProvider.providerId,modelId:'auto'} : undefined;
   const activeMessages = (detail?.messages ?? []) as Message[];
   const [draftMessages, setDraftMessages] = useState<Message[]>([]);
   const renderedMessages = [...activeMessages, ...draftMessages];
@@ -166,7 +180,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
 
   async function streamRequest(payload: StreamConversationInput, promptLabel?: string) {
     if(requestRef.current)return;
-    setBusy(true); setStreamError(''); setRetryRequest(null); setStreaming(''); setAgentEvents([]); setBuildEvents([]);
+    setBusy(true); setStreamError(''); setRoutingNotice(''); setRetryRequest(null); setStreaming(''); setAgentEvents([]); setBuildEvents([]);
     const controller = new AbortController(); requestRef.current = controller;
     let timedOut=false;
     const timeout=setTimeout(()=>{timedOut=true;controller.abort();},270_000);
@@ -192,7 +206,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         if(body?.code==='allowance_exhausted')window.dispatchEvent(new Event('swarm:upgrade'));
-        throw new ChatStreamError(body?.error || `Request failed (${response.status})`, response.status===401?'auth':'server',response.status===429||response.status>=500);
+        throw new ChatStreamError(body?.error || `Request failed (${response.status})`, response.status===401?'auth':'server',body?.code!=='allowance_exhausted'&&(response.status===429||response.status>=500));
       }
       window.dispatchEvent(new Event('swarm:usage'));
       if (!response.body) throw new Error('The response stream is unavailable.');
@@ -201,8 +215,12 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
           const nested = event.data && typeof event.data === 'object' ? event.data as StreamUpdate : undefined;
           if (type === 'model') {
             window.dispatchEvent(new Event('swarm:usage'));
-          } else if (type === 'reset') { setStreaming('');
-          } else if (type === 'routing') { /* Internal routing remains server-managed. */
+          } else if (type === 'reset') { setStreaming(''); setRoutingNotice(String(event.message ?? nested?.message ?? 'The incomplete response was discarded. Retrying…'));
+          } else if (type === 'routing') {
+            // Only real model switches are surfaced; retries stay quiet unless they produce a reset.
+            const status = (event as {status?:string}).status ?? (nested as {status?:string}|undefined)?.status;
+            const text = event.message ?? nested?.message;
+            if (status === 'downgrade' && typeof text === 'string') setRoutingNotice(text);
           } else if (type === 'delta') {
             const token = event.token ?? nested?.token;
             if (typeof token === 'string') setStreaming((current) => current + token);
@@ -211,7 +229,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
             const name = event.name ?? nested?.name;
             const status = event.status ?? nested?.status;
             if (role && name && status) { setAgentEvents((current) => [...current, `${role} · ${name} · ${status}`]); setBuildEvents(current => [...current, {role,name,status,time:Date.now(),output:event.output ?? nested?.output}]); }
-          } else if (type === 'done') {
+          } else if (type === 'done') { setStreamError('');
             const finalMessage = event.message ?? nested?.message;
             if (typeof finalMessage === 'string') setStreaming(finalMessage);
             const finalConversation = event.conversation ?? nested?.conversation;
@@ -254,7 +272,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
   function submit(event?: FormEvent) {
     event?.preventDefault();
     if (busy || !draft.trim()) return;
-    if (!selectedModel) { setStreamError('SWARM AI is temporarily unavailable. No provider key is needed. Please retry later.'); return; }
+    if (!selectedModel) { setStreamError('Connect a provider key in Settings → Providers to start.'); return; }
     const prompt = draft.trim();
     setDraft('');
     void streamRequest({ action: editingMessage ? 'edit' : 'send', prompt, ...(editingMessage ? { messageId: editingMessage } : {}), providerId: selectedModel.providerId, modelId: selectedModel.modelId, mode }, prompt);
@@ -296,7 +314,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
               : !renderedMessages.length && !busy ? <div className={`desktop-welcome ${idleBuild?'desktop-welcome-build':'desktop-welcome-chat'}`}>
                 {idleBuild?<div className="sw-build-introbar"><span className="desktop-build-eyebrow">BUILD STUDIO</span><button type="button" onClick={()=>setSidebarOpen(true)} aria-label="Open project history"><PanelLeftOpen size={15}/>Projects</button></div>:<span className="sw-welcome-emblem"><img src="/brand/swarm-mark.png" alt="SWARM"/></span>}
                 <h1>{idleBuild?'What should SWARM build?':'A thought. A possibility. A start.'}</h1><p>{idleBuild?'Describe the outcome and target platform. SWARM will plan, build, and review the code.':'Bring your question or your next big idea. We’ll work through it together.'}</p>
-                {!validModels.length&&!modelsLoading&&<Link className="desktop-provider-link" href="/app/settings"><KeyRound size={15}/> AI service status</Link>}
+                {!validModels.length&&!modelsLoading&&<div className="sx-empty-model" role="status"><b>No AI model is configured yet.</b><span>Connect a provider to start chatting. It takes about a minute with Groq or Google AI Studio.</span><div className="sx-actions sx-center"><Link className="sx-button sx-primary" href="/app?setup=1"><KeyRound size={15}/>Connect an AI provider</Link><Link className="sx-button sx-ghost" href="/app/settings">Open Settings</Link></div></div>}
                 <div className="desktop-welcome-suggestions">{(idleBuild?[['Web','Build a website that '],['Windows','Build a Windows app that '],['Android','Build an Android app that '],['CLI','Create a CLI tool that ']]:[['Explore an idea','Help me develop an idea for '],['Explain some code','Explain this code: '],['Build a website','Build a website that ']]).map(([label,prompt])=><button key={label} onClick={()=>{if(!idleBuild&&label==='Build a website')setMode('swarm');prefill(prompt);}}>{label}{idleBuild&&<ArrowUpRight size={12}/>}</button>)}</div>
               </div>
               : <div className="mx-auto max-w-[760px] px-6 pb-12 pt-7">
@@ -315,12 +333,13 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
       </div>
       <div className="desktop-composer-wrap shrink-0 bg-background px-4 pb-4 pt-3 md:px-8">
         <div className="mx-auto max-w-[760px]">
+          {routingNotice && !streamError && <div data-testid="status-routing-notice" role="status" className="sx-routing-notice mb-2 flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs"><span>{routingNotice}</span><button aria-label="Dismiss notice" onClick={() => setRoutingNotice('')}><X size={14} /></button></div>}
           {streamError && <div data-testid="status-stream-error" role="alert" className="mb-2 flex items-center justify-between rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive"><span>{streamError}</span>{retryRequest&&<button disabled={busy} className="ml-3 font-bold underline" onClick={()=>void retryFailedResponse()}>Retry</button>}<button aria-label="Dismiss error" onClick={() => setStreamError('')}><X size={14} /></button></div>}
           {/Your SWARM allowance is exhausted|Unlock SWARM SWE Fast with Pro|SWARM Premium requires Pro/.test(streamError) && <button type="button" onClick={() => window.dispatchEvent(new Event('swarm:upgrade'))} className="mb-3 rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white">View Pro plans</button>}
           {editingMessage && <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground">Editing your message<button data-testid="button-cancel-edit" onClick={() => { setEditingMessage(null); setDraft(''); }} className="font-semibold text-foreground">Cancel</button></div>}
           <form data-testid="form-chat-composer" onSubmit={submit} className="rounded-2xl border border-border bg-card p-3 shadow-[0_8px_28px_rgba(16,17,20,.06)] focus-within:border-[#aaaaaa]">
-            <textarea ref={inputRef} data-testid="input-chat-prompt" aria-label="Message SWARM" rows={2} maxLength={32000} value={draft} onChange={(e) => {setDraft(e.target.value);e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,192)+'px';}} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} placeholder={modelsLoading || validModels.length ? (mode==='swarm'?'What do you want to build?':'Ask SWARM anything…') : 'Write your message… AI service is temporarily unavailable.'} disabled={busy} className="min-h-[52px] max-h-48 w-full resize-y bg-transparent px-2 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60" />
-            <details className="composer-account"><summary><SlidersIcon/> AI preferences & allowance <ChevronDown size={12}/></summary><ManagedAccount compact/></details>
+            <textarea ref={inputRef} data-testid="input-chat-prompt" aria-label="Message SWARM" rows={2} maxLength={32000} value={draft} onChange={(e) => {setDraft(e.target.value);e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,192)+'px';}} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} placeholder={mode==='swarm'?'What do you want to build?':'Ask SWARM anything…'} disabled={busy} className="min-h-[52px] max-h-48 w-full resize-y bg-transparent px-2 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-60" />
+            {!validModels.length&&!modelsLoading&&renderedMessages.length>0&&<p className="sx-routing-notice mb-3 rounded-xl px-3 py-2 text-[13px]">No AI model is available. <Link className="font-semibold underline" href="/app?setup=1">Connect a provider</Link> to continue this conversation.</p>}<details className="composer-account"><summary><SlidersIcon/> AI preferences & allowance <ChevronDown size={12}/></summary><ManagedAccount compact/></details>
       <div className="flex flex-wrap items-center gap-2 pt-2">
               <span className="sw-composer-status">{modelsLoading?'Connecting to SWARM…':busy?'SWARM is working':'SWARM AI'}</span>
               {!validModels.length && <Link href="/app/settings" className="inline-flex items-center gap-1 text-[11px] font-bold text-[#101114]"><Plus size={13} /> Settings</Link>}
@@ -338,7 +357,7 @@ function Workspace({mode,setMode}:{mode:ResponseMode;setMode:(mode:ResponseMode)
 }
 
 function SettingsPage() { return <PrivateShell><SettingsWorkspace providers={<ProviderSettings/>}/></PrivateShell>; }
-function ProviderSettings() { return <ManagedAccount/>; }
+function ProviderSettings() { return <div className="space-y-6"><ProviderKeys/><ManagedAccount/></div>; }
 
 function Router() {
   const [location] = useLocation();

@@ -33,12 +33,16 @@ export function openAICompatible(o: Options): ProviderAdapter {
         const id = String(raw.id);
         if (!isChatModel(id)) continue;
         if (o.filter && !o.filter(id, raw)) continue;
-        const ctx = o.context?.(raw) ?? null;
+        const ctx = o.context?.(raw) ?? (typeof raw.context_window === 'number' ? raw.context_window : typeof raw.max_model_len === 'number' ? raw.max_model_len : null);
+        // Groq documents JSON Object Mode for its text models (checked 2026-10-11):
+        // https://console.groq.com/docs/structured-outputs
+        const parameters = Array.isArray(raw.supported_parameters) ? raw.supported_parameters : [];
+        const modalities = (raw.architecture as {input_modalities?:string[]}|undefined)?.input_modalities || [];
         out.push({
           modelId: id,
           displayName: prettyName(id),
-          capabilities: inferCapabilities(id, { long_context: ctx ? ctx >= 100_000 : undefined }),
-          contextLength: ctx ?? inferContext(id),
+          capabilities: inferCapabilities(id, { vision:modalities.includes('image'), tools:parameters.includes('tools'), json:o.id === 'groq' || parameters.includes('response_format'), long_context:!!ctx && ctx >= 100_000 }),
+          contextLength: ctx,
           maxOutput: null,
           freeStatus: o.freeStatus,
         });
@@ -58,7 +62,7 @@ export const nvidia = openAICompatible({
   baseUrl: 'https://integrate.api.nvidia.com/v1',
   signupUrl: 'https://build.nvidia.com',
   freeNotes: 'Free developer access to hosted NIM endpoints with per-minute rate limits.',
-  freeStatus: 'free_tier',
+  freeStatus: 'unknown',
 });
 
 export const groq = openAICompatible({
@@ -67,7 +71,7 @@ export const groq = openAICompatible({
   baseUrl: 'https://api.groq.com/openai/v1',
   signupUrl: 'https://console.groq.com/keys',
   freeNotes: 'Free plan with per-model request and token limits.',
-  freeStatus: 'free_tier',
+  freeStatus: 'unknown',
   filter: (_id, raw) => raw.active !== false,
   context: (raw) => (typeof raw.context_window === 'number' ? raw.context_window : null),
 });
@@ -87,7 +91,7 @@ export const mistral = openAICompatible({
   baseUrl: 'https://api.mistral.ai/v1',
   signupUrl: 'https://console.mistral.ai/api-keys',
   freeNotes: 'Free "Experiment" plan with rate limits.',
-  freeStatus: 'free_tier',
+  freeStatus: 'unknown',
   filter: (_id, raw) => {
     const caps = raw.capabilities as { completion_chat?: boolean } | undefined;
     return caps ? caps.completion_chat !== false : true;
@@ -101,7 +105,7 @@ export const huggingface = openAICompatible({
   baseUrl: 'https://router.huggingface.co/v1',
   signupUrl: 'https://huggingface.co/settings/tokens',
   freeNotes: 'Inference Providers include monthly free credits for free accounts.',
-  freeStatus: 'free_tier',
+  freeStatus: 'unknown',
   context: (raw) => {
     const providers = raw.providers as { context_length?: number }[] | undefined;
     const c = providers?.map((p) => p.context_length ?? 0).filter(Boolean);
